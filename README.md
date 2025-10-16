@@ -104,20 +104,39 @@ helm install kube-prometheus prometheus-community/kube-prometheus-stack -n monit
 
 ---
 
-### 2. Configurazione
+### 2. Configurazione (opzionale)
 
-Modifica le variabili in `scripts/deploy-lab.sh`:
+Le immagini Docker ufficiali sono disponibili su Docker Hub:
+- `docker.io/vcnngr/linux-lab-k8s-ubuntu:latest`
+- `docker.io/vcnngr/linux-lab-k8s-debian:latest`
+- `docker.io/vcnngr/linux-lab-k8s-rocky:latest`
+
+Se vuoi usare immagini personalizzate o un registry diverso, modifica le variabili:
 
 ```bash
-# Registry Docker
+# Registry Docker (opzionale)
 export REGISTRY="your-registry.io"
-export IMAGE_NAME="linux-lab"
+export IMAGE_BASE_NAME="linux-lab-k8s"
 export IMAGE_TAG="latest"
 
 # Configurazione Lab
 export NUM_STUDENTS="6"
 export BASE_DOMAIN="lab.example.com"
 export SUDO_MODE="limited"  # strict | limited | full
+```
+
+**Build immagini personalizzate** (solo se necessario):
+
+```bash
+# Build tutte le distro
+./scripts/build-images.sh build-and-push
+
+# Build solo Ubuntu
+./scripts/build-images.sh build ubuntu
+
+# Con registry personalizzato
+export REGISTRY="myregistry.io/myuser"
+./scripts/build-images.sh build-and-push
 ```
 
 **Modalità Sudo:**

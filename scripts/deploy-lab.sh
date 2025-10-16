@@ -3,6 +3,7 @@
 # Script per deployare il lab completo per tutti gli studenti
 # Versione MIGLIORATA con PVC e password dinamiche
 # AGGIUNTO: Deploy automatico Cockpit IngressRoutes
+# MODIFICATO: Usa immagini pre-built, non compila
 
 set -e
 
@@ -10,8 +11,8 @@ set -e
 # CONFIGURAZIONE
 # ========================================
 
-REGISTRY="${REGISTRY:-vcnngr.io}"
-IMAGE_NAME="${IMAGE_NAME:-linux-lab}"
+REGISTRY="${REGISTRY:-docker.io/vcnngr}"
+IMAGE_BASE_NAME="${IMAGE_BASE_NAME:-linux-lab-k8s}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 NUM_STUDENTS="${NUM_STUDENTS:-6}"
 BASE_DOMAIN="${BASE_DOMAIN:-lab.example.com}"
@@ -69,7 +70,7 @@ choose_distro() {
     echo ""
     echo "  1) Ubuntu 24.04 LTS (Debian-based)"
     echo "  2) Debian Trixie (testing)"
-    echo "  3) Rocky Linux 9 (RHEL-compatible)"
+    echo "  3) Rocky Linux 10 (RHEL-compatible)"
     echo ""
     
     while true; do
@@ -87,7 +88,7 @@ choose_distro() {
                 ;;
             3)
                 DISTRO="rocky"
-                DISTRO_DISPLAY="Rocky Linux 9"
+                DISTRO_DISPLAY="Rocky Linux 10"
                 break
                 ;;
             *)
@@ -96,7 +97,11 @@ choose_distro() {
         esac
     done
     
+    # Costruisci nome immagine completo con distro
+    FULL_IMAGE="${REGISTRY}/${IMAGE_BASE_NAME}-${DISTRO}:${IMAGE_TAG}"
+    
     print_info "Selezionato: ${DISTRO_DISPLAY}"
+    print_info "Immagine: ${FULL_IMAGE}"
 }
 
 # ========================================
@@ -117,7 +122,7 @@ check_requirements() {
         print_step "kubectl found: ${kubectl_version}"
     fi
     
-    # Check docker
+    # Check docker (per pull immagini)
     if ! command -v docker &> /dev/null; then
         print_error "docker not found"
         missing=1
@@ -155,40 +160,25 @@ check_requirements() {
 }
 
 # ========================================
-# BUILD & PUSH IMMAGINE
+# PULL IMMAGINE
 # ========================================
 
-build_and_push_image() {
-    print_header "BUILDING AND PUSHING DOCKER IMAGE"
+pull_image() {
+    print_header "PULLING DOCKER IMAGE"
     
-    local dockerfile="docker/Dockerfile-${DISTRO}"
-    local full_image="${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
-    
-    if [ ! -f "$dockerfile" ]; then
-        print_error "Dockerfile not found: $dockerfile"
-        exit 1
-    fi
-    
-    print_info "Building ${DISTRO_DISPLAY} image..."
-    print_info "Dockerfile: $dockerfile"
-    print_info "Target: $full_image"
+    print_info "Pulling ${DISTRO_DISPLAY} image from registry..."
+    print_info "Image: ${FULL_IMAGE}"
     echo ""
     
-    if docker build -f "$dockerfile" \
-                    -t "$full_image" \
-                    --build-arg SUDO_MODE="$SUDO_MODE" \
-                    docker/; then
-        print_step "Image built successfully"
+    if docker pull "${FULL_IMAGE}"; then
+        print_step "Image pulled successfully"
     else
-        print_error "Docker build failed"
-        exit 1
-    fi
-    
-    print_info "Pushing image to registry..."
-    if docker push "$full_image"; then
-        print_step "Image pushed: $full_image"
-    else
-        print_error "Docker push failed"
+        print_error "Failed to pull image: ${FULL_IMAGE}"
+        echo ""
+        print_info "Available options:"
+        echo "  1. Check if image exists: docker search ${REGISTRY}/${IMAGE_BASE_NAME}"
+        echo "  2. Build image yourself: ./scripts/build-images.sh ${DISTRO}"
+        echo "  3. Use different registry: export REGISTRY=your-registry.io"
         exit 1
     fi
 }
@@ -287,8 +277,6 @@ deploy_config_maps() {
 deploy_student_labs() {
     print_header "DEPLOYING STUDENT LABS"
     
-    local full_image="${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
-    
     # Crea directory per credenziali se non esiste
     mkdir -p "$CREDENTIALS_DIR"
     
@@ -304,6 +292,7 @@ Distribute to students via secure channel.
 
 Generated on: $(date)
 Distribution: ${DISTRO_DISPLAY}
+Image: ${FULL_IMAGE}
 Sudo mode: ${SUDO_MODE}
 
 EOF
@@ -375,19 +364,17 @@ Notes:
   - SSH keys are pre-configured for server1/server2
 
 Generated: $(date)
+Distribution: ${DISTRO_DISPLAY}
 EOF
         
         # ==========================================
         # 4. APPLICA DEPLOYMENT BASE
         # ==========================================
         cat kubernetes/04-student-lab-secure.yaml | \
-            # Rimuovi la sezione Secret (ora gestita sopra)
-            sed '/^---$/,/^kind: Secret$/d' | \
-            sed '/^apiVersion: v1$/,/^  student-password:/d' | \
             # Sostituzioni namespace e immagine
             sed "s|namespace: student1|namespace: student${i}|g" | \
             sed "s|student: \"1\"|student: \"${i}\"|g" | \
-            sed "s|vcnngr.io/linux-lab:latest|${full_image}|g" | \
+            sed "s|vcnngr.io/linux-lab:latest|${FULL_IMAGE}|g" | \
             sed "s|value: \"limited\"|value: \"${SUDO_MODE}\"|g" | \
             kubectl apply -f - > /dev/null
         
@@ -618,7 +605,7 @@ print_summary() {
     echo "  • Students: $NUM_STUDENTS"
     echo "  • Distribution: $DISTRO_DISPLAY"
     echo "  • Sudo mode: $SUDO_MODE"
-    echo "  • Image: ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+    echo "  • Image: ${FULL_IMAGE}"
     echo "  • Base domain: $BASE_DOMAIN"
     echo "  • Ingress: Traefik"
     echo "  • Persistent Storage: Enabled (PVC)"
@@ -660,7 +647,7 @@ print_summary() {
 # ========================================
 
 main() {
-    print_header "LINUX LAB K8S DEPLOYMENT (IMPROVED)"
+    print_header "LINUX LAB K8S DEPLOYMENT"
     
     # Scegli distribuzione
     choose_distro
@@ -668,7 +655,7 @@ main() {
     echo ""
     echo -e "${CYAN}Configuration Summary:${NC}"
     echo "  Registry: $REGISTRY"
-    echo "  Image: $IMAGE_NAME:$IMAGE_TAG"
+    echo "  Image: ${FULL_IMAGE}"
     echo "  Distribution: $DISTRO_DISPLAY"
     echo "  Students: $NUM_STUDENTS"
     echo "  Base domain: $BASE_DOMAIN"
@@ -688,14 +675,14 @@ main() {
     
     # Deployment steps
     check_requirements
-    build_and_push_image
+    pull_image
     create_namespaces
     deploy_config_maps
     generate_ssh_keys
     deploy_persistent_volumes
     deploy_student_labs
     deploy_traefik_ingress
-    deploy_cockpit_routes       # NUOVO - Deploy Cockpit routes
+    deploy_cockpit_routes
     wait_for_pods
     print_summary
 }
