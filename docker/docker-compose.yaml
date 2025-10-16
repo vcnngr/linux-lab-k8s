@@ -3,7 +3,9 @@ services:
     image: docker.io/vcnngr/linux-lab-k8s-ubuntu:latest
     container_name: test-client
     privileged: true
-    cgroupns: host
+    environment:
+      - STUDENT_PASSWORD=testpassword123
+      - SUDO_MODE=limited
     volumes:
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
       - test-workspace:/home/student
@@ -18,7 +20,9 @@ services:
     image: docker.io/vcnngr/linux-lab-k8s-rocky:latest
     container_name: test-server1
     privileged: true
-    cgroupns: host
+    environment:
+      - STUDENT_PASSWORD=testpassword123
+      - SUDO_MODE=limited
     volumes:
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
     ports:
@@ -30,7 +34,9 @@ services:
     image: docker.io/vcnngr/linux-lab-k8s-ubuntu:latest
     container_name: test-server2
     privileged: true
-    cgroupns: host
+    environment:
+      - STUDENT_PASSWORD=testpassword123
+      - SUDO_MODE=limited
     volumes:
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
     ports:
