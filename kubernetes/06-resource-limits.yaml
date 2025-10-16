@@ -1,0 +1,92 @@
+# Resource Quotas e Limits per namespace studenti
+# Applicare in ogni namespace student*
+
+---
+# ResourceQuota per namespace
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: student-quota
+  namespace: student1
+spec:
+  hard:
+    # CPU limits (con margine 50%)
+    requests.cpu: "2000m"    # Tot request: 250+150+100+100 = 600m
+    limits.cpu: "4500m"      # Tot limits: 1000+500+500+500 = 2500m
+    
+    # Memory limits (con margine 25%)
+    requests.memory: "2Gi"   # Tot request: 512+256+256+256 = 1280Mi
+    limits.memory: "5Gi"     # Tot limits: 1024+512+512+512 = 2560Mi
+    
+    # Storage
+    persistentvolumeclaims: "5"
+    requests.storage: "20Gi"
+    
+    # Object counts
+    pods: "10"
+    services: "10"
+    configmaps: "20"
+    secrets: "20"
+    
+    # No load balancers
+    services.loadbalancers: "0"
+    
+    # No node ports
+    services.nodeports: "0"
+
+---
+# LimitRange per default e max values
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: student-limits
+  namespace: student1
+spec:
+  limits:
+  # Container limits
+  - type: Container
+    max:
+      cpu: "2000m"
+      memory: "2Gi"
+    min:
+      cpu: "50m"
+      memory: "64Mi"
+    default:
+      cpu: "500m"
+      memory: "512Mi"
+    defaultRequest:
+      cpu: "100m"
+      memory: "256Mi"
+    maxLimitRequestRatio:
+      cpu: "4"
+      memory: "2"
+  
+  # Pod limits
+  - type: Pod
+    max:
+      cpu: "4500m"
+      memory: "5Gi"
+    min:
+      cpu: "100m"
+      memory: "128Mi"
+  
+  # PVC limits
+  - type: PersistentVolumeClaim
+    max:
+      storage: "10Gi"
+    min:
+      storage: "100Mi"
+
+---
+# PodDisruptionBudget per garantire almeno un pod running
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: client-pdb
+  namespace: student1
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: client
+      role: workstation

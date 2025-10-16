@@ -1,0 +1,186 @@
+# Monitoring con Prometheus per Student Lab
+# Richiede prometheus-operator installato
+
+---
+# PodMonitor per raccogliere metriche da pod studenti
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: student-lab-pods
+  namespace: monitoring
+  labels:
+    app: student-lab
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      monitor: student-lab
+  namespaceSelector:
+    matchNames:
+    - student1
+    - student2
+    - student3
+    - student4
+    - student5
+    - student6
+  podMetricsEndpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+
+---
+# ServiceMonitor per metriche servizi
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: student-lab-services
+  namespace: monitoring
+  labels:
+    app: student-lab
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      monitor: student-lab
+  namespaceSelector:
+    matchNames:
+    - student1
+    - student2
+    - student3
+    - student4
+    - student5
+    - student6
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+
+---
+# PrometheusRule per alert sul lab
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: student-lab-alerts
+  namespace: monitoring
+  labels:
+    prometheus: kube-prometheus
+    app: student-lab
+spec:
+  groups:
+  - name: student-lab
+    interval: 30s
+    rules:
+    
+    # Alert se pod studente down
+    - alert: StudentPodDown
+      expr: up{job="student-lab-pods"} == 0
+      for: 5m
+      labels:
+        severity: warning
+        component: student-lab
+      annotations:
+        summary: "Student lab pod is down"
+        description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has been down for more than 5 minutes"
+    
+    # Alert alta CPU
+    - alert: StudentHighCPU
+      expr: |
+        rate(container_cpu_usage_seconds_total{namespace=~"student.*",container!=""}[5m]) > 0.8
+      for: 10m
+      labels:
+        severity: warning
+        component: student-lab
+      annotations:
+        summary: "High CPU usage in student lab"
+        description: "Container {{ $labels.container }} in pod {{ $labels.pod }} CPU usage is above 80% for 10 minutes"
+    
+    # Alert alta memoria
+    - alert: StudentHighMemory
+      expr: |
+        (container_memory_usage_bytes{namespace=~"student.*",container!=""} / container_spec_memory_limit_bytes{namespace=~"student.*",container!=""}) > 0.9
+      for: 5m
+      labels:
+        severity: warning
+        component: student-lab
+      annotations:
+        summary: "High memory usage in student lab"
+        description: "Container {{ $labels.container }} in pod {{ $labels.pod }} memory usage is above 90%"
+    
+    # Alert pod restart loop
+    - alert: StudentPodRestartLoop
+      expr: |
+        rate(kube_pod_container_status_restarts_total{namespace=~"student.*"}[15m]) > 0
+      for: 5m
+      labels:
+        severity: critical
+        component: student-lab
+      annotations:
+        summary: "Student pod is restarting frequently"
+        description: "Pod {{ $labels.pod }} has restarted {{ $value }} times in the last 15 minutes"
+    
+    # Alert troppi studenti
+    - alert: TooManyStudentPods
+      expr: |
+        count(kube_pod_info{namespace=~"student.*"}) > 30
+      for: 5m
+      labels:
+        severity: warning
+        component: student-lab
+      annotations:
+        summary: "Too many student pods running"
+        description: "More than 30 student pods detected ({{ $value }}), possible resource exhaustion"
+    
+    # Alert ResourceQuota saturata
+    - alert: StudentResourceQuotaExceeded
+      expr: |
+        kube_resourcequota{namespace=~"student.*",type="used"} / kube_resourcequota{namespace=~"student.*",type="hard"} > 0.9
+      for: 5m
+      labels:
+        severity: warning
+        component: student-lab
+      annotations:
+        summary: "Student ResourceQuota near limit"
+        description: "Namespace {{ $labels.namespace }} is using {{ $value | humanizePercentage }} of {{ $labels.resource }} quota"
+
+---
+# ConfigMap con query Prometheus utili
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-queries
+  namespace: monitoring
+data:
+  queries.yaml: |
+    # Query utili per monitorare student lab
+    
+    # CPU usage per studente
+    student_cpu_usage: |
+      sum(rate(container_cpu_usage_seconds_total{namespace=~"student.*",container!=""}[5m])) by (namespace)
+    
+    # Memory usage per studente
+    student_memory_usage: |
+      sum(container_memory_usage_bytes{namespace=~"student.*",container!=""}) by (namespace)
+    
+    # Pod count per studente
+    student_pod_count: |
+      count(kube_pod_info{namespace=~"student.*",pod!=""}) by (namespace)
+    
+    # Network traffic RX per studente
+    student_network_rx: |
+      sum(rate(container_network_receive_bytes_total{namespace=~"student.*"}[5m])) by (namespace)
+    
+    # Network traffic TX per studente
+    student_network_tx: |
+      sum(rate(container_network_transmit_bytes_total{namespace=~"student.*"}[5m])) by (namespace)
+    
+    # Disk I/O read per studente
+    student_disk_read: |
+      sum(rate(container_fs_reads_bytes_total{namespace=~"student.*"}[5m])) by (namespace)
+    
+    # Disk I/O write per studente
+    student_disk_write: |
+      sum(rate(container_fs_writes_bytes_total{namespace=~"student.*"}[5m])) by (namespace)
+    
+    # ResourceQuota usage percentage
+    student_quota_usage: |
+      (kube_resourcequota{namespace=~"student.*",type="used"} / kube_resourcequota{namespace=~"student.*",type="hard"}) * 100

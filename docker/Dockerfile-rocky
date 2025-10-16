@@ -1,0 +1,190 @@
+FROM rockylinux:10
+
+# Metadata
+LABEL maintainer="lab@example.com"
+LABEL description="Rocky Linux 10 container for Linux training lab"
+LABEL version="1.1"
+
+# Variabili ambiente
+ENV TZ=Europe/Rome
+
+# Installa pacchetti base
+RUN dnf install -y \
+    systemd \
+    openssh-server \
+    sudo \
+    vim \
+    nano \
+    htop \
+    net-tools \
+    iputils \
+    curl \
+    cockpit cockpit-storaged \
+    wget \
+    git \
+    rsync \
+    man-db \
+    less \
+    tmux \
+    screen \
+    nc \
+    bind-utils \
+    tree \
+    cronie \
+    procps-ng \
+    psmisc \
+    lsof \
+    strace \
+    tcpdump \
+    iproute \
+    iptables \
+    ca-certificates \
+    tzdata \
+    glibc-langpack-en \
+    && dnf clean all
+
+# Configura timezone
+RUN ln -sf /usr/share/zoneinfo/$TZ /etc/localtime
+
+# Cleanup systemd per container
+RUN systemctl mask \
+    systemd-remount-fs.service \
+    dev-hugepages.mount \
+    sys-fs-fuse-connections.mount \
+    systemd-logind.service \
+    getty.target \
+    console-getty.service \
+    systemd-udev-trigger.service \
+    systemd-udevd.service
+
+# Genera SSH host keys
+RUN ssh-keygen -A
+
+# Configura SSH
+RUN mkdir -p /var/run/sshd /root/.ssh
+RUN sed -i 's/^#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+RUN sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+RUN sed -i 's/^#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+RUN systemctl enable sshd
+
+# Enable Cockpit service
+RUN systemctl enable cockpit.socket
+
+# ==========================================
+# Crea utente student (wheel group = sudo in RHEL) SENZA password
+# La password sarà impostata dinamicamente all'avvio del container
+# tramite la variabile d'ambiente STUDENT_PASSWORD
+# ==========================================
+RUN useradd -m -u 1001 -G wheel student && \
+    mkdir -p /home/student/.ssh && \
+    chown -R student:student /home/student && \
+    chmod 700 /home/student/.ssh
+# NOTA: La riga "echo student:student123 | chpasswd" è stata RIMOSSA
+# ==========================================
+
+# Configura sudo per wheel group
+RUN sed -i 's/^# %wheel ALL=(ALL) NOPASSWD: ALL/%wheel ALL=(ALL) NOPASSWD: \/usr\/bin\/systemctl, \/usr\/bin\/dnf, \/usr\/bin\/journalctl/' /etc/sudoers
+RUN echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
+
+# Disabilita root login
+RUN passwd -l root
+
+# SELinux in permissive (per container)
+RUN mkdir -p /etc/selinux && \
+    echo "SELINUX=permissive" > /etc/selinux/config
+
+# Abilita cron
+RUN systemctl enable crond
+
+# Copia script
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY setup-ssh-keys.sh /usr/local/bin/setup-ssh-keys.sh
+COPY sudoers-config.sh /usr/local/bin/sudoers-config.sh
+RUN chmod +x /usr/local/bin/*.sh
+
+# Banner Rocky Linux
+RUN cat > /etc/motd << 'EOF'
+╔═════════════════════════════════════════╗
+║    LINUX TRAINING LAB - ROCKY LINUX 10   ║
+╚═════════════════════════════════════════╝
+
+Welcome to your RHEL-compatible training environment!
+Type 'cat ~/README.txt' for instructions.
+
+EOF
+
+# README per studente
+RUN cat > /home/student/README.txt << 'EOF'
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LABORATORIO LINUX - ROCKY LINUX 10
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+INFORMAZIONI SISTEMA:
+- Distribuzione: Rocky Linux 10 (RHEL-compatible)
+- Kernel: $(uname -r)
+- Package Manager: dnf/yum
+- Init System: systemd
+- Firewall: firewalld (disponibile)
+- SELinux: Permissive (lab mode)
+
+NETWORK:
+- Client: $(hostname)
+- Server1: server1 (SSH ready)
+- Server2: server2 (SSH ready)
+
+DIFFERENZE DA UBUNTU/DEBIAN:
+┌─────────────────────────────────────────┐
+│ dnf install <pkg>    → invece di apt    │
+│ Gruppo 'wheel'       → invece di sudo   │
+│ firewall-cmd         → gestione firewall│
+│ /etc/sysconfig/      → configurazioni   │
+└─────────────────────────────────────────┘
+
+COMANDI RAPIDI:
+┌─────────────────────────────────────────┐
+│ ssh server1          → Connetti server1 │
+│ ssh server2          → Connetti server2 │
+│ sudo <comando>       → Esegui come root │
+│ systemctl status sshd→ Status servizi   │
+│ journalctl -xe       → System logs      │
+│ dnf search <pkg>     → Cerca pacchetti  │
+│ htop                 → Monitor processi │
+└─────────────────────────────────────────┘
+
+ESERCITAZIONI:
+Segui le istruzioni del docente.
+I file delle esercitazioni sono in ~/exercises/
+
+SUPPORTO:
+Per problemi tecnici contatta il docente.
+
+Buon lavoro! 🚀
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EOF
+
+RUN chown student:student /home/student/README.txt
+
+# Crea directory esercitazioni
+RUN mkdir -p /home/student/exercises && \
+    chown -R student:student /home/student/exercises
+
+# Log directory
+RUN mkdir -p /var/log/sudo && \
+    touch /var/log/sudo.log && \
+    chmod 600 /var/log/sudo.log
+
+# Volume per systemd
+VOLUME [ "/sys/fs/cgroup" ]
+
+# Expose SSH
+EXPOSE 22
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD systemctl is-active sshd || exit 1
+
+# Entrypoint
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+
+# Systemd come init
+CMD ["/usr/lib/systemd/systemd"]

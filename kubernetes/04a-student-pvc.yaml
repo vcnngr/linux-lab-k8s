@@ -1,0 +1,31 @@
+# kubernetes/04a-student-pvc.yaml
+# Persistent Volume Claim per workspace studente
+# Evita perdita dati al restart del pod
+# Applicare per ogni namespace student*
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: student-workspace-pvc
+  namespace: student1  # Sarà sostituito dinamicamente dallo script
+  labels:
+    app: student-lab
+    component: workspace
+    student-id: "1"
+spec:
+  accessModes:
+    - ReadWriteOnce  # Accessibile da un solo nodo alla volta
+  
+  resources:
+    requests:
+      storage: 5Gi  # Dimensione workspace per studente
+
+  storageClassName: "ceph-block"  # Per cluster con Ceph Rook
+
+  # Decommenta e specifica se non usi la StorageClass default del cluster
+  # storageClassName: "standard"
+  # storageClassName: "local-path"  # Per k3s/k3d
+  # storageClassName: "gp2"         # Per AWS EKS
+  
+  # Opzionale: Mantiene i dati anche dopo cancellazione del PVC
+  # persistentVolumeReclaimPolicy: Retain

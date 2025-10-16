@@ -1,0 +1,62 @@
+# Namespaces per ogni studente
+# Crea namespace isolati per isolare risorse e applicare NetworkPolicy
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: student1
+  labels:
+    name: student1
+    student-id: "1"
+    project: linux-lab
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: student2
+  labels:
+    name: student2
+    student-id: "2"
+    project: linux-lab
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: student3
+  labels:
+    name: student3
+    student-id: "3"
+    project: linux-lab
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: student4
+  labels:
+    name: student4
+    student-id: "4"
+    project: linux-lab
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: student5
+  labels:
+    name: student5
+    student-id: "5"
+    project: linux-lab
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: student6
+  labels:
+    name: student6
+    student-id: "6"
+    project: linux-lab

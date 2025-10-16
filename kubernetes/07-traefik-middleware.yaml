@@ -1,0 +1,101 @@
+# Traefik Middleware per sicurezza e performance
+# Applicare nel namespace default (globale)
+
+---
+# HTTPS Redirect
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: https-redirect
+  namespace: default
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+    port: "443"
+
+---
+# Security Headers
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: security-headers
+  namespace: default
+spec:
+  headers:
+    # Security headers
+    frameDeny: true
+    contentTypeNosniff: true
+    browserXssFilter: true
+    referrerPolicy: "strict-origin-when-cross-origin"
+    
+    # Custom response headers
+    customResponseHeaders:
+      X-Frame-Options: "DENY"
+      X-Content-Type-Options: "nosniff"
+      X-XSS-Protection: "1; mode=block"
+      Permissions-Policy: "geolocation=(), microphone=(), camera=()"
+      X-Powered-By: ""
+    
+    # SSL settings
+    sslRedirect: true
+    sslForceHost: true
+    stsSeconds: 31536000
+    stsIncludeSubdomains: true
+    stsPreload: true
+
+---
+# Rate Limiting
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: rate-limit
+  namespace: default
+spec:
+  rateLimit:
+    average: 100
+    period: 1s
+    burst: 50
+
+---
+# Compress responses
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: compress
+  namespace: default
+spec:
+  compress:
+    excludedContentTypes:
+      - text/event-stream
+
+---
+# IP Whitelist (opzionale - decommentare se necessario)
+# apiVersion: traefik.containo.us/v1alpha1
+# kind: Middleware
+# metadata:
+#   name: ip-whitelist
+#   namespace: default
+# spec:
+#   ipWhiteList:
+#     sourceRange:
+#     - "10.0.0.0/8"
+#     - "192.168.0.0/16"
+#     - "172.16.0.0/12"
+
+---
+# Chain di middleware (applica tutto insieme)
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: student-lab-chain
+  namespace: default
+spec:
+  chain:
+    middlewares:
+    - name: security-headers
+      namespace: default
+    - name: rate-limit
+      namespace: default
+    - name: compress
+      namespace: default

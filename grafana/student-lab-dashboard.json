@@ -1,0 +1,243 @@
+{
+    "dashboard": {
+        "title": "Student Lab Overview",
+        "tags": [
+            "student-lab",
+            "kubernetes"
+        ],
+        "timezone": "browser",
+        "panels": [
+            {
+                "id": 1,
+                "title": "Active Students",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "count(count by (namespace) (kube_pod_info{namespace=~\"student.*\"}))",
+                        "legendFormat": "Active Students"
+                    }
+                ],
+                "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 0,
+                    "y": 0
+                }
+            },
+            {
+                "id": 2,
+                "title": "Total Pods Running",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "count(kube_pod_info{namespace=~\"student.*\", phase=\"Running\"})",
+                        "legendFormat": "Running Pods"
+                    }
+                ],
+                "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 6,
+                    "y": 0
+                }
+            },
+            {
+                "id": 3,
+                "title": "Total CPU Usage",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"student.*\"}[5m]))",
+                        "legendFormat": "CPU Cores"
+                    }
+                ],
+                "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 12,
+                    "y": 0
+                }
+            },
+            {
+                "id": 4,
+                "title": "Total Memory Usage",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "sum(container_memory_usage_bytes{namespace=~\"student.*\"}) / 1024 / 1024 / 1024",
+                        "legendFormat": "Memory GB"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "decgbytes"
+                    }
+                },
+                "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 18,
+                    "y": 0
+                }
+            },
+            {
+                "id": 5,
+                "title": "CPU Usage per Student",
+                "type": "graph",
+                "targets": [
+                    {
+                        "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"student.*\"}[5m])) by (namespace)",
+                        "legendFormat": "{{ namespace }}"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "short",
+                        "label": "CPU Cores"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 4
+                }
+            },
+            {
+                "id": 6,
+                "title": "Memory Usage per Student",
+                "type": "graph",
+                "targets": [
+                    {
+                        "expr": "sum(container_memory_usage_bytes{namespace=~\"student.*\"}) by (namespace) / 1024 / 1024",
+                        "legendFormat": "{{ namespace }}"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "decmbytes",
+                        "label": "Memory MB"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 4
+                }
+            },
+            {
+                "id": 7,
+                "title": "Network Traffic (RX)",
+                "type": "graph",
+                "targets": [
+                    {
+                        "expr": "sum(rate(container_network_receive_bytes_total{namespace=~\"student.*\"}[5m])) by (namespace)",
+                        "legendFormat": "{{ namespace }}"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "Bps",
+                        "label": "Bytes/sec"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 12
+                }
+            },
+            {
+                "id": 8,
+                "title": "Network Traffic (TX)",
+                "type": "graph",
+                "targets": [
+                    {
+                        "expr": "sum(rate(container_network_transmit_bytes_total{namespace=~\"student.*\"}[5m])) by (namespace)",
+                        "legendFormat": "{{ namespace }}"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "Bps",
+                        "label": "Bytes/sec"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 12
+                }
+            },
+            {
+                "id": 9,
+                "title": "Pod Status by Student",
+                "type": "table",
+                "targets": [
+                    {
+                        "expr": "kube_pod_info{namespace=~\"student.*\"}",
+                        "format": "table",
+                        "instant": true
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 24,
+                    "x": 0,
+                    "y": 20
+                }
+            },
+            {
+                "id": 10,
+                "title": "Pod Restart Count",
+                "type": "graph",
+                "targets": [
+                    {
+                        "expr": "sum(kube_pod_container_status_restarts_total{namespace=~\"student.*\"}) by (namespace, pod)",
+                        "legendFormat": "{{ namespace }}/{{ pod }}"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 28
+                }
+            },
+            {
+                "id": 11,
+                "title": "Disk I/O",
+                "type": "graph",
+                "targets": [
+                    {
+                        "expr": "sum(rate(container_fs_reads_bytes_total{namespace=~\"student.*\"}[5m])) by (namespace)",
+                        "legendFormat": "{{ namespace }} Read"
+                    },
+                    {
+                        "expr": "sum(rate(container_fs_writes_bytes_total{namespace=~\"student.*\"}[5m])) by (namespace)",
+                        "legendFormat": "{{ namespace }} Write"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "Bps"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 28
+                }
+            }
+        ],
+        "refresh": "30s",
+        "time": {
+            "from": "now-1h",
+            "to": "now"
+        }
+    }
+}

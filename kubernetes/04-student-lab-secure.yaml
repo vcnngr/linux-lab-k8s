@@ -1,0 +1,529 @@
+# Deployment completo Student Lab (VERSIONE MIGLIORATA)
+# Include: Client (Code-Server + Linux), Server1, Server2
+# MODIFICHE:
+#   - Rimosso Secret statico (ora generato dinamicamente dallo script)
+#   - Workspace usa PVC invece di emptyDir
+#   - Env var STUDENT_PASSWORD sarà aggiunta via patch dallo script
+#   - COCKPIT: Porta 9090 esposta per GUI amministrazione sistema
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: student-lab
+  namespace: student1
+
+---
+# NOTA: Il Secret 'student-credentials' è ora creato dinamicamente
+#       dallo script deploy-lab.sh con password generate casualmente
+
+---
+# CLIENT POD (Code-Server + Linux)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client
+  namespace: student1
+  labels:
+    app: client
+    student: "1"
+    monitor: student-lab
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: client
+      role: workstation
+  template:
+    metadata:
+      labels:
+        app: client
+        role: workstation
+        student: "1"
+        monitor: student-lab
+    spec:
+      serviceAccountName: student-lab
+      
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: "OnRootMismatch"
+      
+      containers:
+      # ============================================
+      # CODE-SERVER CONTAINER
+      # ============================================
+      - name: code-server
+        image: codercom/code-server:4.20.0
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        
+        env:
+        - name: PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: student-credentials
+              key: code-server-password
+        - name: DOCKER_USER
+          value: "coder"
+        - name: TELEMETRY_DISABLED
+          value: "1"
+        
+        volumeMounts:
+        - name: workspace
+          mountPath: /home/coder/project
+        
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false
+        
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+      
+      # ============================================
+      # LINUX CONTAINER (con Cockpit)
+      # ============================================
+      - name: linux
+        image: vcnngr.io/linux-lab:latest
+        ports:
+        - containerPort: 22
+          name: ssh
+          protocol: TCP
+        - containerPort: 9090
+          name: cockpit
+          protocol: TCP
+        
+        env:
+        - name: SUDO_MODE
+          value: "limited"
+        - name: CONTAINER_ROLE
+          value: "client"
+        # NOTA: STUDENT_PASSWORD sarà aggiunta via kubectl patch dallo script
+        
+        volumeMounts:
+        - name: ssh-config
+          mountPath: /home/student/.ssh/config
+          subPath: config
+        - name: workspace
+          mountPath: /home/student/workspace
+        - name: ssh-keys
+          mountPath: /tmp/ssh-keys
+          readOnly: true
+        - name: run
+          mountPath: /run
+        - name: tmp
+          mountPath: /tmp
+        - name: cgroup
+          mountPath: /sys/fs/cgroup
+          readOnly: true
+        
+        securityContext:
+          allowPrivilegeEscalation: true
+          capabilities:
+            drop:
+            - ALL
+            add:
+            # Capabilities minime per systemd (NO SYS_ADMIN)
+            - CHOWN
+            - DAC_OVERRIDE
+            - FOWNER
+            - SETGID
+            - SETUID
+            - SYS_CHROOT
+            - AUDIT_WRITE
+            - SYS_NICE
+            - SYS_RESOURCE
+          privileged: false
+          runAsNonRoot: false
+          readOnlyRootFilesystem: false
+        
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "150m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - systemctl is-active ssh || systemctl is-active sshd
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          tcpSocket:
+            port: 22
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+      
+      volumes:
+      - name: ssh-config
+        configMap:
+          name: ssh-config
+      # ============================================
+      # WORKSPACE - USA PVC INVECE DI emptyDir
+      # ============================================
+      - name: workspace
+        persistentVolumeClaim:
+          claimName: student-workspace-pvc
+      # ============================================
+      - name: ssh-keys
+        secret:
+          secretName: ssh-keys
+          defaultMode: 0600
+      - name: run
+        emptyDir:
+          medium: Memory
+          sizeLimit: 100Mi
+      - name: tmp
+        emptyDir:
+          medium: Memory
+          sizeLimit: 500Mi
+      - name: cgroup
+        hostPath:
+          path: /sys/fs/cgroup
+          type: Directory
+
+---
+# Service per Client (con porta Cockpit)
+apiVersion: v1
+kind: Service
+metadata:
+  name: client
+  namespace: student1
+  labels:
+    app: client
+    monitor: student-lab
+spec:
+  selector:
+    app: client
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  - name: ssh
+    port: 22
+    targetPort: 22
+    protocol: TCP
+  - name: cockpit
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  type: ClusterIP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+
+---
+# SERVER 1
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server1
+  namespace: student1
+  labels:
+    app: server1
+    student: "1"
+    monitor: student-lab
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: server1
+      role: server
+  template:
+    metadata:
+      labels:
+        app: server1
+        role: server
+        student: "1"
+        monitor: student-lab
+    spec:
+      serviceAccountName: student-lab
+      
+      securityContext:
+        fsGroup: 1001
+      
+      containers:
+      - name: linux
+        image: vcnngr.io/linux-lab:latest
+        ports:
+        - containerPort: 22
+          name: ssh
+        
+        env:
+        - name: SERVER_NAME
+          value: "server1"
+        - name: SUDO_MODE
+          value: "limited"
+        - name: CONTAINER_ROLE
+          value: "server"
+        # NOTA: STUDENT_PASSWORD sarà aggiunta via kubectl patch dallo script
+        
+        volumeMounts:
+        - name: ssh-keys
+          mountPath: /tmp/ssh-keys
+          readOnly: true
+        - name: run
+          mountPath: /run
+        - name: tmp
+          mountPath: /tmp
+        - name: cgroup
+          mountPath: /sys/fs/cgroup
+          readOnly: true
+        
+        securityContext:
+          allowPrivilegeEscalation: true
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - CHOWN
+            - DAC_OVERRIDE
+            - SETGID
+            - SETUID
+            - SYS_CHROOT
+            - AUDIT_WRITE
+            - SYS_NICE
+            - SYS_RESOURCE
+          privileged: false
+        
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - systemctl is-active ssh || systemctl is-active sshd
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        
+        readinessProbe:
+          tcpSocket:
+            port: 22
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      
+      volumes:
+      - name: ssh-keys
+        secret:
+          secretName: ssh-keys
+          defaultMode: 0600
+          items:
+          - key: id_rsa.pub
+            path: id_rsa.pub
+      - name: run
+        emptyDir:
+          medium: Memory
+      - name: tmp
+        emptyDir:
+          medium: Memory
+      - name: cgroup
+        hostPath:
+          path: /sys/fs/cgroup
+          type: Directory
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: server1
+  namespace: student1
+  labels:
+    app: server1
+    monitor: student-lab
+spec:
+  selector:
+    app: server1
+  ports:
+  - name: ssh
+    port: 22
+    targetPort: 22
+  type: ClusterIP
+
+---
+# SERVER 2
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server2
+  namespace: student1
+  labels:
+    app: server2
+    student: "1"
+    monitor: student-lab
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: server2
+      role: server
+  template:
+    metadata:
+      labels:
+        app: server2
+        role: server
+        student: "1"
+        monitor: student-lab
+    spec:
+      serviceAccountName: student-lab
+      
+      securityContext:
+        fsGroup: 1001
+      
+      containers:
+      - name: linux
+        image: vcnngr.io/linux-lab:latest
+        ports:
+        - containerPort: 22
+          name: ssh
+        
+        env:
+        - name: SERVER_NAME
+          value: "server2"
+        - name: SUDO_MODE
+          value: "limited"
+        - name: CONTAINER_ROLE
+          value: "server"
+        # NOTA: STUDENT_PASSWORD sarà aggiunta via kubectl patch dallo script
+        
+        volumeMounts:
+        - name: ssh-keys
+          mountPath: /tmp/ssh-keys
+          readOnly: true
+        - name: run
+          mountPath: /run
+        - name: tmp
+          mountPath: /tmp
+        - name: cgroup
+          mountPath: /sys/fs/cgroup
+          readOnly: true
+        
+        securityContext:
+          allowPrivilegeEscalation: true
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - CHOWN
+            - DAC_OVERRIDE
+            - SETGID
+            - SETUID
+            - SYS_CHROOT
+            - AUDIT_WRITE
+            - SYS_NICE
+            - SYS_RESOURCE
+          privileged: false
+        
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - systemctl is-active ssh || systemctl is-active sshd
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        
+        readinessProbe:
+          tcpSocket:
+            port: 22
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      
+      volumes:
+      - name: ssh-keys
+        secret:
+          secretName: ssh-keys
+          defaultMode: 0600
+          items:
+          - key: id_rsa.pub
+            path: id_rsa.pub
+      - name: run
+        emptyDir:
+          medium: Memory
+      - name: tmp
+        emptyDir:
+          medium: Memory
+      - name: cgroup
+        hostPath:
+          path: /sys/fs/cgroup
+          type: Directory
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: server2
+  namespace: student1
+  labels:
+    app: server2
+    monitor: student-lab
+spec:
+  selector:
+    app: server2
+  ports:
+  - name: ssh
+    port: 22
+    targetPort: 22
+  type: ClusterIP

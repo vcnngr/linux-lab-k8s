@@ -1,0 +1,27 @@
+# ConfigMap con configurazione SSH per client
+# Permette connessioni SSH semplici: ssh server1 / ssh server2
+# Applicare in ogni namespace student*
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ssh-config
+  labels:
+    app: ssh-config
+data:
+  config: |
+    # Configurazione SSH per connessioni rapide ai server
+    
+    Host server1
+        HostName server1
+        User student
+        StrictHostKeyChecking no
+        UserKnownHostsFile /dev/null
+        LogLevel ERROR
+    
+    Host server2
+        HostName server2
+        User student
+        StrictHostKeyChecking no
+        UserKnownHostsFile /dev/null
+        LogLevel ERROR

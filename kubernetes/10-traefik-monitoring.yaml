@@ -1,0 +1,178 @@
+# Monitoring Traefik con Prometheus
+# Richiede prometheus-operator installato
+
+---
+# ServiceMonitor per Traefik
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: traefik
+  namespace: traefik
+  labels:
+    app: traefik
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+
+---
+# PrometheusRule per Alert Traefik
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: traefik-alerts
+  namespace: monitoring
+  labels:
+    prometheus: kube-prometheus
+    app: traefik
+spec:
+  groups:
+  - name: traefik
+    interval: 30s
+    rules:
+    
+    # Alert su errori 5xx
+    - alert: TraefikHighHttp5xxRate
+      expr: |
+        (
+          sum(rate(traefik_service_requests_total{code=~"5.."}[5m])) by (service)
+          /
+          sum(rate(traefik_service_requests_total[5m])) by (service)
+        ) > 0.05
+      for: 5m
+      labels:
+        severity: warning
+        component: traefik
+      annotations:
+        summary: "High 5xx error rate on {{ $labels.service }}"
+        description: "Service {{ $labels.service }} has {{ $value | humanizePercentage }} 5xx errors"
+    
+    # Alert su errori 4xx (possibile attacco)
+    - alert: TraefikHighHttp4xxRate
+      expr: |
+        (
+          sum(rate(traefik_service_requests_total{code=~"4.."}[5m])) by (service)
+          /
+          sum(rate(traefik_service_requests_total[5m])) by (service)
+        ) > 0.15
+      for: 10m
+      labels:
+        severity: warning
+        component: traefik
+      annotations:
+        summary: "High 4xx error rate on {{ $labels.service }}"
+        description: "Service {{ $labels.service }} has {{ $value | humanizePercentage }} 4xx errors - possible attack or misconfiguration"
+    
+    # Alert certificato in scadenza
+    - alert: TraefikTLSCertExpireSoon
+      expr: |
+        (traefik_tls_certs_not_after - time()) / 86400 < 7
+      for: 1h
+      labels:
+        severity: warning
+        component: traefik
+      annotations:
+        summary: "TLS certificate expiring soon"
+        description: "Certificate {{ $labels.cn }} will expire in {{ $value }} days"
+    
+    # Alert alta latenza
+    - alert: TraefikHighLatency
+      expr: |
+        histogram_quantile(0.99,
+          sum(rate(traefik_service_request_duration_seconds_bucket[5m])) by (service, le)
+        ) > 3
+      for: 10m
+      labels:
+        severity: warning
+        component: traefik
+      annotations:
+        summary: "High latency on {{ $labels.service }}"
+        description: "99th percentile latency is {{ $value }}s on {{ $labels.service }}"
+    
+    # Alert rate limiting attivo
+    - alert: TraefikRateLimitActive
+      expr: |
+        rate(traefik_service_requests_total{code="429"}[5m]) > 1
+      for: 5m
+      labels:
+        severity: info
+        component: traefik
+      annotations:
+        summary: "Rate limiting active on student lab"
+        description: "Rate limit triggered {{ $value }} times per second - possible attack or overload"
+    
+    # Alert Traefik down
+    - alert: TraefikDown
+      expr: |
+        up{job="traefik"} == 0
+      for: 2m
+      labels:
+        severity: critical
+        component: traefik
+      annotations:
+        summary: "Traefik is down"
+        description: "Traefik instance {{ $labels.instance }} has been down for more than 2 minutes"
+
+---
+# ConfigMap con query Prometheus per Traefik
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traefik-queries
+  namespace: monitoring
+data:
+  queries.yaml: |
+    # Query Prometheus per Traefik
+    
+    # Requests per secondo per studente
+    student_requests_rate: |
+      sum(rate(traefik_service_requests_total{service=~"student.*"}[5m])) by (service)
+    
+    # Latency P50/P95/P99 per studente
+    student_latency_p50: |
+      histogram_quantile(0.50,
+        sum(rate(traefik_service_request_duration_seconds_bucket{service=~"student.*"}[5m])) by (service, le)
+      )
+    
+    student_latency_p95: |
+      histogram_quantile(0.95,
+        sum(rate(traefik_service_request_duration_seconds_bucket{service=~"student.*"}[5m])) by (service, le)
+      )
+    
+    student_latency_p99: |
+      histogram_quantile(0.99,
+        sum(rate(traefik_service_request_duration_seconds_bucket{service=~"student.*"}[5m])) by (service, le)
+      )
+    
+    # Bandwidth RX per studente
+    student_bandwidth_rx: |
+      sum(rate(traefik_service_request_bytes_total{service=~"student.*"}[5m])) by (service)
+    
+    # Bandwidth TX per studente
+    student_bandwidth_tx: |
+      sum(rate(traefik_service_response_bytes_total{service=~"student.*"}[5m])) by (service)
+    
+    # Status codes distribution
+    student_status_codes: |
+      sum(rate(traefik_service_requests_total{service=~"student.*"}[5m])) by (service, code)
+    
+    # Connessioni attive
+    student_active_connections: |
+      sum(traefik_service_open_connections{service=~"student.*"}) by (service)
+    
+    # Request size average
+    student_request_size_avg: |
+      sum(rate(traefik_service_request_bytes_sum{service=~"student.*"}[5m])) by (service)
+      /
+      sum(rate(traefik_service_requests_total{service=~"student.*"}[5m])) by (service)
+    
+    # Response size average
+    student_response_size_avg: |
+      sum(rate(traefik_service_response_bytes_sum{service=~"student.*"}[5m])) by (service)
+      /
+      sum(rate(traefik_service_requests_total{service=~"student.*"}[5m])) by (service)
