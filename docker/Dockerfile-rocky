@@ -8,6 +8,8 @@ LABEL version="1.1"
 # Variabili ambiente
 ENV TZ=Europe/Rome
 
+RUN dnf install -y epel-release && dnf clean all
+
 # Installa pacchetti base
 RUN dnf install -y \
     systemd \
