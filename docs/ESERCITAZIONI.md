@@ -67,7 +67,7 @@
    ```bash
    # Dal client
    ssh student@server1
-   # Password: student123
+   # Inserisci la password Linux che ti è stata fornita dal docente.
    
    # Una volta connesso
    hostname

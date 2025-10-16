@@ -1,8 +1,9 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Script per build e push delle immagini Docker
 # Da usare SOLO se vuoi ricompilare le immagini personalizzate
 # Gestisce tag multipli per versioning completo
+# Compatibile con bash e zsh
 
 set -e
 
@@ -304,8 +305,9 @@ list_tags() {
 list_tags_for_distro() {
     local distro=$1
     local tags=($(get_tags_for_distro "$distro"))
+    local distro_upper=$(echo "$distro" | tr '[:lower:]' '[:upper:]')
     
-    echo -e "${CYAN}${distro^^}:${NC}"
+    echo -e "${CYAN}${distro_upper}:${NC}"
     for tag in "${tags[@]}"; do
         echo "  ${REGISTRY}/${IMAGE_BASE_NAME}-${distro}:${tag}"
     done
@@ -371,13 +373,13 @@ Tag Strategy:
     - debian-13-${BUILD_DATE}
     - debian-13-${PROJECT_VERSION}
   
-  Rocky 9:
+  Rocky 10:
     - latest, rocky, rocky-latest
-    - rocky-9, rocky-9.5
+    - rocky-10, rocky-10.0
     - rocky-${PROJECT_VERSION}
-    - rocky-9-${BUILD_DATE}
-    - rocky-9-${PROJECT_VERSION}
-    - rocky-9.5-${BUILD_DATE}
+    - rocky-10-${BUILD_DATE}
+    - rocky-10-${PROJECT_VERSION}
+    - rocky-10.0-${BUILD_DATE}
 
 Current Configuration:
   Registry: ${REGISTRY}
