@@ -1,0 +1,46 @@
+services:
+  client:
+    image: docker.io/vcnngr/linux-lab-k8s-ubuntu:latest
+    container_name: test-client
+    privileged: true
+    cgroupns: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      - test-workspace:/home/student
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+      - "2222:22"
+    networks:
+      - test-net
+
+  server1:
+    image: docker.io/vcnngr/linux-lab-k8s-rocky:latest
+    container_name: test-server1
+    privileged: true
+    cgroupns: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    ports:
+      - "2223:22"
+    networks:
+      - test-net
+
+  server2:
+    image: docker.io/vcnngr/linux-lab-k8s-ubuntu:latest
+    container_name: test-server2
+    privileged: true
+    cgroupns: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    ports:
+      - "2224:22"
+    networks:
+      - test-net
+
+volumes:
+  test-workspace:
+
+networks:
+  test-net:
+    driver: bridge
