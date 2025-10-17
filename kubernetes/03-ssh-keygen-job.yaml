@@ -70,8 +70,7 @@ spec:
           touch /keys/known_hosts
           
           echo "Setting permissions..."
-          chmod 600 /keys/id_rsa
-          chmod 644 /keys/id_rsa.pub /keys/known_hosts
+          chmod 644 /keys/id_rsa /keys/id_rsa.pub /keys/known_hosts
           
           echo "Creating completion marker..."
           date > /keys/.generated
@@ -93,7 +92,7 @@ spec:
       
       containers:
       - name: create-secret
-        image: bitnami/kubectl:1.28
+        image: bitnamilegacy/kubectl:1.28
         command:
         - /bin/bash
         - -c
