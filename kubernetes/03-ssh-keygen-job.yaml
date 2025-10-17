@@ -92,7 +92,7 @@ spec:
       
       containers:
       - name: create-secret
-        image: bitnami/kubectl:1.28
+        image: bitnamilegacy/kubectl:1.28
         command:
         - /bin/bash
         - -c
