@@ -207,12 +207,12 @@ build_image() {
     print_info "Dockerfile: $dockerfile"
     echo ""
     
-    # FIX #2: Build con context corrretto (. invece di docker/)
+    # Build con il context corretto (docker/ perché contiene tutti i file necessari)
     if ! docker build -f "$dockerfile" \
                     -t "$primary_image" \
                     --build-arg SUDO_MODE="$SUDO_MODE" \
                     --build-arg BUILD_DATE="$BUILD_DATE" \
-                    .; then
+                    docker/; then
         print_error "Build failed for $distro"
         return 1
     fi
