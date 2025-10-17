@@ -4,6 +4,7 @@
 # Versione MIGLIORATA con PVC e password dinamiche
 # AGGIUNTO: Deploy automatico Cockpit IngressRoutes
 # MODIFICATO: Usa immagini pre-built, non compila
+# FIXED: Scelta interattiva StorageClass
 
 set -e
 
@@ -17,6 +18,7 @@ IMAGE_TAG="${IMAGE_TAG:-latest}"
 NUM_STUDENTS="${NUM_STUDENTS:-6}"
 BASE_DOMAIN="${BASE_DOMAIN:-lab.example.com}"
 SUDO_MODE="${SUDO_MODE:-limited}"  # strict | limited | full
+STORAGE_CLASS=""  # Verrà selezionato interattivamente
 
 # Directory per salvare le password generate
 CREDENTIALS_DIR="./credentials"
@@ -102,6 +104,115 @@ choose_distro() {
     
     print_info "Selezionato: ${DISTRO_DISPLAY}"
     print_info "Immagine: ${FULL_IMAGE}"
+}
+
+# ========================================
+# SCELTA STORAGECLASS
+# ========================================
+
+choose_storage_class() {
+    echo ""
+    echo -e "${CYAN}Seleziona StorageClass per i PVC:${NC}"
+    echo ""
+    
+    # Ottieni lista StorageClass disponibili
+    local storage_classes=($(kubectl get storageclass -o jsonpath='{.items[*].metadata.name}' 2>/dev/null))
+    local default_sc=$(kubectl get storageclass -o jsonpath='{.items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")].metadata.name}' 2>/dev/null)
+    
+    if [ ${#storage_classes[@]} -eq 0 ]; then
+        print_warning "No StorageClass found in cluster!"
+        print_info "You can still specify a custom StorageClass name or continue without one"
+        echo ""
+        read -p "Enter custom StorageClass name (or leave empty for no storageClassName): " custom_sc
+        STORAGE_CLASS="$custom_sc"
+        if [ -z "$STORAGE_CLASS" ]; then
+            print_info "PVCs will be created without storageClassName"
+        else
+            print_info "Using custom StorageClass: ${STORAGE_CLASS}"
+        fi
+        return
+    fi
+    
+    # Mostra dettagli StorageClass in formato tabella
+    echo -e "${CYAN}Available StorageClasses:${NC}"
+    echo ""
+    printf "  %-3s %-30s %-25s %s\n" "ID" "NAME" "PROVISIONER" "DEFAULT"
+    printf "  %s\n" "$(printf '%.0s─' {1..80})"
+    
+    echo -e "  ${YELLOW}0${NC}   Use cluster default (omit storageClassName)"
+    
+    local i=1
+    for sc in "${storage_classes[@]}"; do
+        local provisioner=$(kubectl get storageclass "$sc" -o jsonpath='{.provisioner}' 2>/dev/null)
+        local is_default=""
+        if [ "$sc" == "$default_sc" ]; then
+            is_default="${GREEN}✓${NC}"
+        else
+            is_default=" "
+        fi
+        printf "  ${YELLOW}%-3s${NC} %-30s %-25s %b\n" "$i" "$sc" "${provisioner:0:25}" "$is_default"
+        ((i++))
+    done
+    
+    echo -e "  ${YELLOW}c${NC}   Enter custom StorageClass name"
+    echo ""
+    
+    while true; do
+        read -p "Scelta [0-$((${#storage_classes[@]}))/c]: " choice
+        
+        # Opzione 0: usa default del cluster
+        if [ "$choice" == "0" ]; then
+            STORAGE_CLASS=""
+            if [ -n "$default_sc" ]; then
+                print_info "Using cluster default StorageClass: ${default_sc}"
+            else
+                print_info "No storageClassName specified (cluster will use default)"
+            fi
+            break
+        
+        # Opzione 'c': custom name
+        elif [ "$choice" == "c" ] || [ "$choice" == "C" ]; then
+            echo ""
+            read -p "Enter StorageClass name: " custom_sc
+            if [ -z "$custom_sc" ]; then
+                print_warning "Empty name, using cluster default"
+                STORAGE_CLASS=""
+            else
+                # Verifica se esiste
+                if kubectl get storageclass "$custom_sc" &> /dev/null; then
+                    STORAGE_CLASS="$custom_sc"
+                    print_info "Selected: ${STORAGE_CLASS}"
+                else
+                    print_warning "StorageClass '${custom_sc}' not found in cluster"
+                    read -p "Use it anyway? (y/N) " -n 1 -r
+                    echo
+                    if [[ $REPLY =~ ^[Yy]$ ]]; then
+                        STORAGE_CLASS="$custom_sc"
+                        print_info "Using custom StorageClass: ${STORAGE_CLASS} (not verified)"
+                    else
+                        continue
+                    fi
+                fi
+            fi
+            break
+        
+        # Opzione numerica: scelta dalla lista
+        elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#storage_classes[@]}" ]; then
+            STORAGE_CLASS="${storage_classes[$((choice-1))]}"
+            print_info "Selected: ${STORAGE_CLASS}"
+            break
+        
+        else
+            echo -e "${RED}Scelta non valida. Riprova (0-$((${#storage_classes[@]})) o 'c' per custom).${NC}"
+        fi
+    done
+    
+    # Mostra info dettagliate sulla StorageClass scelta
+    if [ -n "$STORAGE_CLASS" ]; then
+        echo ""
+        echo -e "${CYAN}StorageClass Details:${NC}"
+        kubectl get storageclass "$STORAGE_CLASS" 2>/dev/null || echo "  (Custom name - not verified)"
+    fi
 }
 
 # ========================================
@@ -208,20 +319,44 @@ create_namespaces() {
 deploy_persistent_volumes() {
     print_header "CREATING PERSISTENT VOLUMES"
     
+    if [ -n "$STORAGE_CLASS" ]; then
+        print_info "Using StorageClass: ${STORAGE_CLASS}"
+    else
+        print_info "Using cluster default StorageClass"
+    fi
+    echo ""
+    
     for i in $(seq 1 $NUM_STUDENTS); do
         echo -e "${BLUE}[${i}/${NUM_STUDENTS}]${NC} Creating PVC for student${i}..."
         
-        cat kubernetes/04a-student-pvc.yaml | \
-            sed "s/namespace: student1/namespace: student${i}/g" | \
-            sed "s/student-id: \"1\"/student-id: \"${i}\"/g" | \
-            kubectl apply -f - > /dev/null
+        # Costruisci YAML PVC dinamicamente
+        if [ -n "$STORAGE_CLASS" ]; then
+            # Con StorageClass specificata
+            cat kubernetes/04a-student-pvc.yaml | \
+                sed "s/namespace: student1/namespace: student${i}/g" | \
+                sed "s/student-id: \"1\"/student-id: \"${i}\"/g" | \
+                sed "s|# storageClassName viene omesso.*|storageClassName: \"${STORAGE_CLASS}\"|g" | \
+                kubectl apply -f - > /dev/null
+        else
+            # Senza StorageClass (usa default)
+            cat kubernetes/04a-student-pvc.yaml | \
+                sed "s/namespace: student1/namespace: student${i}/g" | \
+                sed "s/student-id: \"1\"/student-id: \"${i}\"/g" | \
+                kubectl apply -f - > /dev/null
+        fi
     done
     
     print_step "PersistentVolumeClaims created"
     
     # Verifica che almeno un PVC sia stato creato
+    sleep 2
     if kubectl get pvc -n student1 student-workspace-pvc &> /dev/null; then
-        print_info "PVC verification: OK"
+        local pvc_status=$(kubectl get pvc -n student1 student-workspace-pvc -o jsonpath='{.status.phase}')
+        if [ "$pvc_status" == "Bound" ]; then
+            print_info "PVC verification: OK (Bound)"
+        else
+            print_warning "PVC status: ${pvc_status} (provisioning...)"
+        fi
     else
         print_warning "PVC not found - may take time to provision"
     fi
@@ -294,6 +429,7 @@ Generated on: $(date)
 Distribution: ${DISTRO_DISPLAY}
 Image: ${FULL_IMAGE}
 Sudo mode: ${SUDO_MODE}
+StorageClass: ${STORAGE_CLASS:-<cluster default>}
 
 EOF
     
@@ -365,6 +501,7 @@ Notes:
 
 Generated: $(date)
 Distribution: ${DISTRO_DISPLAY}
+StorageClass: ${STORAGE_CLASS:-<cluster default>}
 EOF
         
         # ==========================================
@@ -609,6 +746,7 @@ print_summary() {
     echo "  • Base domain: $BASE_DOMAIN"
     echo "  • Ingress: Traefik"
     echo "  • Persistent Storage: Enabled (PVC)"
+    echo "  • StorageClass: ${STORAGE_CLASS:-<cluster default>}"
     echo "  • Dynamic Passwords: Enabled"
     echo "  • Cockpit System GUI: Enabled (port 9090)"
     echo ""
@@ -652,6 +790,9 @@ main() {
     # Scegli distribuzione
     choose_distro
     
+    # Scegli StorageClass
+    choose_storage_class
+    
     echo ""
     echo -e "${CYAN}Configuration Summary:${NC}"
     echo "  Registry: $REGISTRY"
@@ -662,6 +803,7 @@ main() {
     echo "  Sudo mode: $SUDO_MODE"
     echo "  Ingress: Traefik"
     echo "  Persistent Storage: YES (PVC)"
+    echo "  StorageClass: ${STORAGE_CLASS:-<cluster default>}"
     echo "  Dynamic Passwords: YES"
     echo "  Cockpit GUI: YES (port 9090)"
     echo ""
