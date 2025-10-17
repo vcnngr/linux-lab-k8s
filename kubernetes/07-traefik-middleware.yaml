@@ -3,7 +3,7 @@
 
 ---
 # HTTPS Redirect
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: https-redirect
@@ -16,7 +16,7 @@ spec:
 
 ---
 # Security Headers
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: security-headers
@@ -46,7 +46,7 @@ spec:
 
 ---
 # Rate Limiting
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: rate-limit
@@ -59,7 +59,7 @@ spec:
 
 ---
 # Compress responses
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: compress
@@ -71,7 +71,7 @@ spec:
 
 ---
 # IP Whitelist (opzionale - decommentare se necessario)
-# apiVersion: traefik.containo.us/v1alpha1
+# apiVersion: traefik.io/v1alpha1
 # kind: Middleware
 # metadata:
 #   name: ip-whitelist
@@ -85,7 +85,7 @@ spec:
 
 ---
 # Chain di middleware (applica tutto insieme)
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: student-lab-chain
