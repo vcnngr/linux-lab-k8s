@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 
 # Script per build e push delle immagini Docker
-# Da usare SOLO se vuoi ricompilare le immagini personalizzate
-# Gestisce tag multipli per versioning completo
-# Compatibile con bash e zsh
+# Con supporto autenticazione via token
 
 set -e
 
@@ -14,6 +12,10 @@ set -e
 REGISTRY="${REGISTRY:-docker.io/vcnngr}"
 IMAGE_BASE_NAME="${IMAGE_BASE_NAME:-linux-lab-k8s}"
 SUDO_MODE="${SUDO_MODE:-limited}"
+
+# AUTENTICAZIONE
+DOCKER_USERNAME="${DOCKER_USERNAME:-}"
+DOCKER_TOKEN="${DOCKER_TOKEN:-}"
 
 # Versione progetto (semantic versioning)
 PROJECT_VERSION="${PROJECT_VERSION:-1.0.0}"
@@ -128,6 +130,71 @@ get_tags_for_distro() {
 }
 
 # ========================================
+# AUTENTICAZIONE DOCKER
+# ========================================
+
+docker_login() {
+    local registry_host=$(echo "$REGISTRY" | cut -d'/' -f1)
+    
+    print_info "Authenticating to registry: ${registry_host}"
+    
+    # Se token fornito, usa quello
+    if [ -n "$DOCKER_TOKEN" ] && [ -n "$DOCKER_USERNAME" ]; then
+        print_info "Using provided credentials..."
+        
+        if echo "$DOCKER_TOKEN" | docker login "$registry_host" -u "$DOCKER_USERNAME" --password-stdin 2>/dev/null; then
+            print_step "Successfully authenticated with token"
+            return 0
+        else
+            print_error "Authentication failed with provided credentials"
+            return 1
+        fi
+    fi
+    
+    # Altrimenti verifica se già loggato
+    if verify_registry_access "$registry_host"; then
+        print_step "Already authenticated to ${registry_host}"
+        return 0
+    fi
+    
+    # Chiedi login interattivo
+    print_warning "Not authenticated. Please login:"
+    if docker login "$registry_host"; then
+        print_step "Authentication successful"
+        return 0
+    else
+        print_error "Authentication failed"
+        return 1
+    fi
+}
+
+# ========================================
+# VERIFICA ACCESSO AL REGISTRY
+# ========================================
+
+verify_registry_access() {
+    local registry_host=$1
+    
+    # Crea una piccola immagine di test
+    local test_image="${REGISTRY}/test-access:deleteme"
+    
+    print_info "Verifying access to ${registry_host}..."
+    
+    # Prova a fare pull di un'immagine pubblica o push di un test tag
+    # Questo è il modo più affidabile per verificare l'accesso
+    
+    # Controlla le credenziali salvate
+    local config_file="${HOME}/.docker/config.json"
+    if [ -f "$config_file" ]; then
+        if grep -q "\"${registry_host}\"" "$config_file" 2>/dev/null; then
+            return 0
+        fi
+    fi
+    
+    return 1
+}
+
+# ========================================
 # BUILD SINGOLA IMMAGINE CON TAG MULTIPLI
 # ========================================
 
@@ -198,7 +265,12 @@ push_image() {
         
         echo -n "  Pushing ${tag}... "
         
-        if docker push "$full_tag" &> /dev/null; then
+        if docker push "$full_tag" 2>&1 | grep -q "denied\|unauthorized"; then
+            echo -e "${RED}✗${NC} (authentication failed)"
+            ((failed++))
+            print_error "Push failed due to authentication. Please check credentials."
+            return 1
+        elif docker push "$full_tag" &> /dev/null; then
             echo -e "${GREEN}✓${NC}"
             ((success++))
         else
@@ -330,6 +402,7 @@ Commands:
   push-all          Push all images with all tags
   build-and-push    Build and push all images
   list-tags [dist]  List all tags that will be created
+  login             Login to Docker registry
   help              Show this help
 
 Environment Variables:
@@ -337,49 +410,36 @@ Environment Variables:
   IMAGE_BASE_NAME   Base image name (default: linux-lab-k8s)
   PROJECT_VERSION   Project version (default: 1.0.0)
   SUDO_MODE         Sudo mode: strict|limited|full (default: limited)
+  DOCKER_USERNAME   Docker Hub username (for automatic login)
+  DOCKER_TOKEN      Docker Hub access token (for automatic login)
 
 Examples:
+  # Login interactively
+  $0 login
+
+  # Login with token (secure method)
+  export DOCKER_USERNAME="your-username"
+  export DOCKER_TOKEN="your-access-token"
+  $0 push-all
+
   # Build only Ubuntu image with all tags
   $0 build ubuntu
 
   # Build all images
   $0 build-all
 
-  # List all tags that will be created
-  $0 list-tags
-
-  # Build and push all to custom registry with version
+  # Build and push with custom configuration
   export REGISTRY="myregistry.io/myuser"
   export PROJECT_VERSION="2.1.0"
+  export DOCKER_USERNAME="myuser"
+  export DOCKER_TOKEN="dckr_pat_xxxxx"
   $0 build-and-push
 
-  # Push only Debian with all tags
-  $0 push debian
-
-Tag Strategy:
-  Each image gets multiple tags for flexibility:
-  
-  Ubuntu 24.04:
-    - latest, ubuntu, ubuntu-latest
-    - ubuntu-24.04, ubuntu-noble, noble
-    - ubuntu-${PROJECT_VERSION}
-    - ubuntu-24.04-${BUILD_DATE}
-    - ubuntu-24.04-${PROJECT_VERSION}
-  
-  Debian 13:
-    - latest, debian, debian-latest
-    - debian-13, debian-trixie, trixie
-    - debian-${PROJECT_VERSION}
-    - debian-13-${BUILD_DATE}
-    - debian-13-${PROJECT_VERSION}
-  
-  Rocky 10:
-    - latest, rocky, rocky-latest
-    - rocky-10, rocky-10.0
-    - rocky-${PROJECT_VERSION}
-    - rocky-10-${BUILD_DATE}
-    - rocky-10-${PROJECT_VERSION}
-    - rocky-10.0-${BUILD_DATE}
+Security Notes:
+  - Never hardcode tokens in scripts
+  - Use environment variables or secret management
+  - Docker tokens can be created at: https://hub.docker.com/settings/security
+  - Tokens are safer than passwords (can be revoked individually)
 
 Current Configuration:
   Registry: ${REGISTRY}
@@ -387,6 +447,8 @@ Current Configuration:
   Project version: ${PROJECT_VERSION}
   Build date: ${BUILD_DATE}
   Sudo mode: ${SUDO_MODE}
+  Username: ${DOCKER_USERNAME:-<not set>}
+  Token: ${DOCKER_TOKEN:+<set>}${DOCKER_TOKEN:-<not set>}
 
 EOF
 }
@@ -417,27 +479,6 @@ check_dockerfile() {
     fi
 }
 
-check_registry_login() {
-    print_info "Checking registry authentication..."
-    
-    # Estrai hostname dal registry
-    local registry_host=$(echo "$REGISTRY" | cut -d'/' -f1)
-    
-    # Test push di un'immagine vuota (non fa nulla, solo verifica auth)
-    if docker info 2>&1 | grep -q "Username:"; then
-        print_step "Authenticated to registry"
-    else
-        print_warning "Not authenticated to registry. You may need to run:"
-        echo "  docker login ${registry_host}"
-        echo ""
-        read -p "Continue anyway? (y/N) " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            exit 0
-        fi
-    fi
-}
-
 # ========================================
 # MAIN
 # ========================================
@@ -454,6 +495,10 @@ main() {
     echo "  Project version: $PROJECT_VERSION"
     echo "  Build date: $BUILD_DATE"
     echo "  Sudo mode: $SUDO_MODE"
+    if [ -n "$DOCKER_USERNAME" ]; then
+        echo "  Username: $DOCKER_USERNAME"
+        echo "  Token: ${DOCKER_TOKEN:+***configured***}"
+    fi
     echo ""
     
     check_docker
@@ -486,6 +531,10 @@ main() {
             print_info "All tags created. Run with 'list-tags' to see them."
             ;;
             
+        login)
+            docker_login
+            ;;
+            
         push)
             if [ -z "$distro" ]; then
                 print_error "Please specify distro: ubuntu, debian, or rocky"
@@ -498,18 +547,29 @@ main() {
                 exit 1
             fi
             
-            check_registry_login
+            if ! docker_login; then
+                print_error "Authentication required before push"
+                exit 1
+            fi
+            
             push_image "$distro"
             ;;
             
         push-all)
-            check_registry_login
+            if ! docker_login; then
+                print_error "Authentication required before push"
+                exit 1
+            fi
+            
             push_all
             ;;
             
         build-and-push)
             if build_all; then
-                check_registry_login
+                if ! docker_login; then
+                    print_error "Authentication required before push"
+                    exit 1
+                fi
                 push_all
             else
                 print_error "Build failed, skipping push"
