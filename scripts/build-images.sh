@@ -340,6 +340,10 @@ push_all() {
         echo -e "${CYAN}═══════════════════════════════${NC}"
         echo ""
         
+        # Force flush
+        sync
+        sleep 1
+        
         if push_image "$distro"; then
             ((success++))
             print_step "${distro} push completed successfully"
@@ -348,6 +352,9 @@ push_all() {
             failed_distros+=("$distro")
             print_error "${distro} push FAILED - continuing with next distro"
         fi
+        
+        echo ""
+        echo "DEBUG: Finished pushing $distro (success=$success, failed=$failed)"
         echo ""
     done
     
@@ -580,7 +587,14 @@ main() {
                 exit 1
             fi
             
-            push_all
+            # IMPORTANTE: Non uscire, esegui la funzione push_all che gestisce il loop
+            if push_all; then
+                echo ""
+                print_step "All images pushed successfully!"
+                exit 0
+            else
+                exit 1
+            fi
             ;;
             
         build-and-push)
