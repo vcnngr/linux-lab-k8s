@@ -331,17 +331,18 @@ deploy_persistent_volumes() {
         
         # Costruisci YAML PVC dinamicamente
         if [ -n "$STORAGE_CLASS" ]; then
-            # Con StorageClass specificata
+            # Con StorageClass specificata - sostituisci placeholder
             cat kubernetes/04a-student-pvc.yaml | \
                 sed "s/namespace: student1/namespace: student${i}/g" | \
                 sed "s/student-id: \"1\"/student-id: \"${i}\"/g" | \
-                sed "s|# storageClassName viene omesso.*|storageClassName: \"${STORAGE_CLASS}\"|g" | \
+                sed "s/# STORAGECLASS_PLACEHOLDER/storageClassName: \"${STORAGE_CLASS}\"/g" | \
                 kubectl apply -f - > /dev/null
         else
-            # Senza StorageClass (usa default)
+            # Senza StorageClass - rimuovi placeholder (usa default)
             cat kubernetes/04a-student-pvc.yaml | \
                 sed "s/namespace: student1/namespace: student${i}/g" | \
                 sed "s/student-id: \"1\"/student-id: \"${i}\"/g" | \
+                sed "/# STORAGECLASS_PLACEHOLDER/d" | \
                 kubectl apply -f - > /dev/null
         fi
     done

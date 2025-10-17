@@ -20,12 +20,6 @@ spec:
     requests:
       storage: 5Gi  # Dimensione workspace per studente
 
-  storageClassName: "ceph-block"  # Per cluster con Ceph Rook
-
-  # Decommenta e specifica se non usi la StorageClass default del cluster
-  # storageClassName: "standard"
-  # storageClassName: "local-path"  # Per k3s/k3d
-  # storageClassName: "gp2"         # Per AWS EKS
-  
-  # Opzionale: Mantiene i dati anche dopo cancellazione del PVC
-  # persistentVolumeReclaimPolicy: Retain
+  # STORAGECLASS_PLACEHOLDER
+  # Questo placeholder sarà sostituito dallo script deploy-lab.sh
+  # Se vuoto, usa la StorageClass di default del cluster
