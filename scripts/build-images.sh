@@ -107,24 +107,25 @@ print_info() {
 }
 
 # ========================================
-# GET TAGS PER DISTRO
+# GET TAGS PER DISTRO - FIX #1: USA NAMEREF
 # ========================================
 
 get_tags_for_distro() {
     local distro=$1
+    local -n tags_ref=$2  # CORREZIONE: nameref invece di echo
     
     case "$distro" in
         ubuntu)
-            echo "${UBUNTU_TAGS[@]}"
+            tags_ref=("${UBUNTU_TAGS[@]}")
             ;;
         debian)
-            echo "${DEBIAN_TAGS[@]}"
+            tags_ref=("${DEBIAN_TAGS[@]}")
             ;;
         rocky)
-            echo "${ROCKY_TAGS[@]}"
+            tags_ref=("${ROCKY_TAGS[@]}")
             ;;
         *)
-            echo ""
+            tags_ref=()
             ;;
     esac
 }
@@ -175,13 +176,7 @@ docker_login() {
 verify_registry_access() {
     local registry_host=$1
     
-    # Crea una piccola immagine di test
-    local test_image="${REGISTRY}/test-access:deleteme"
-    
     print_info "Verifying access to ${registry_host}..."
-    
-    # Prova a fare pull di un'immagine pubblica o push di un test tag
-    # Questo è il modo più affidabile per verificare l'accesso
     
     # Controlla le credenziali salvate
     local config_file="${HOME}/.docker/config.json"
@@ -212,20 +207,21 @@ build_image() {
     print_info "Dockerfile: $dockerfile"
     echo ""
     
-    # Build con tag primario
+    # FIX #2: Build con context corrretto (. invece di docker/)
     if ! docker build -f "$dockerfile" \
                     -t "$primary_image" \
                     --build-arg SUDO_MODE="$SUDO_MODE" \
                     --build-arg BUILD_DATE="$BUILD_DATE" \
-                    docker/; then
+                    .; then
         print_error "Build failed for $distro"
         return 1
     fi
     
     print_step "Image built: $primary_image"
     
-    # Aggiungi tag multipli
-    local tags=($(get_tags_for_distro "$distro"))
+    # Aggiungi tag multipli - USA NAMEREF
+    local -a tags
+    get_tags_for_distro "$distro" tags
     
     print_info "Tagging with ${#tags[@]} additional tags..."
     
@@ -247,7 +243,8 @@ build_image() {
 
 push_image() {
     local distro=$1
-    local tags=($(get_tags_for_distro "$distro"))
+    local -a tags
+    get_tags_for_distro "$distro" tags
     
     # Aggiungi "latest" se non presente
     if [[ ! " ${tags[@]} " =~ " latest " ]]; then
@@ -376,7 +373,8 @@ list_tags() {
 
 list_tags_for_distro() {
     local distro=$1
-    local tags=($(get_tags_for_distro "$distro"))
+    local -a tags
+    get_tags_for_distro "$distro" tags
     local distro_upper=$(echo "$distro" | tr '[:lower:]' '[:upper:]')
     
     echo -e "${CYAN}${distro_upper}:${NC}"
