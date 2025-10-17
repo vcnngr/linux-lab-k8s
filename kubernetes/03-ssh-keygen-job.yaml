@@ -92,7 +92,7 @@ spec:
       
       containers:
       - name: create-secret
-        image: bitnamilegacy/kubectl:1.28
+        image: bitnami/kubectl:1.28
         command:
         - /bin/bash
         - -c
@@ -106,16 +106,18 @@ spec:
           
           echo "Keys found! Creating Kubernetes secret..."
           
+          NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
+          
           kubectl create secret generic ssh-keys \
             --from-file=id_rsa=/keys/id_rsa \
             --from-file=id_rsa.pub=/keys/id_rsa.pub \
             --from-file=known_hosts=/keys/known_hosts \
-            --namespace=student1 \
+            --namespace=${NAMESPACE} \
             --dry-run=client -o yaml | kubectl apply -f -
           
           echo "✓ Secret 'ssh-keys' created successfully"
           
-          kubectl get secret ssh-keys -n student1
+          kubectl get secret ssh-keys -n ${NAMESPACE}
         
         volumeMounts:
         - name: ssh-keys
