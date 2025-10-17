@@ -610,7 +610,7 @@ deploy_traefik_ingress() {
         
         cat <<EOF | kubectl apply -f - > /dev/null
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
   name: student${i}-http
@@ -628,7 +628,7 @@ spec:
     - name: https-redirect
       namespace: default
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
   name: student${i}-https
@@ -665,7 +665,7 @@ deploy_cockpit_routes() {
         
         cat <<EOF | kubectl apply -f - > /dev/null
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
   name: cockpit-route
