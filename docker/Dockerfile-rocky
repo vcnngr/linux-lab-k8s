@@ -3,15 +3,17 @@ FROM rockylinux/rockylinux:10
 # Metadata
 LABEL maintainer="lab@example.com"
 LABEL description="Rocky Linux 10 container for Linux training lab"
-LABEL version="1.1"
+LABEL version="1.2"
 
 # Variabili ambiente
 ENV TZ=Europe/Rome
 
-RUN dnf install -y epel-release && dnf clean all
+# Ottimizzazione: disabilita installazione documentazione
+RUN echo "tsflags=nodocs" >> /etc/dnf/dnf.conf
 
-# Installa pacchetti base
-RUN dnf install -y \
+# Installa EPEL e pacchetti base in un unico layer ottimizzato
+RUN dnf install -y epel-release && \
+    dnf install -y \
     systemd \
     openssh-server \
     sudo \
@@ -43,7 +45,12 @@ RUN dnf install -y \
     ca-certificates \
     tzdata \
     glibc-langpack-en \
-    && dnf clean all
+    && dnf clean all \
+    && rm -rf /var/cache/dnf/* \
+    && rm -rf /var/cache/yum/* \
+    && rm -rf /tmp/* \
+    && rm -rf /var/tmp/* \
+    && find /var/log -type f -delete
 
 # Configura timezone
 RUN ln -sf /usr/share/zoneinfo/$TZ /etc/localtime
@@ -62,31 +69,26 @@ RUN systemctl mask \
 # Genera SSH host keys
 RUN ssh-keygen -A
 
-# Configura SSH
-RUN mkdir -p /var/run/sshd /root/.ssh
-RUN sed -i 's/^#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
-RUN sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
-RUN sed -i 's/^#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-RUN systemctl enable sshd
+# Configura SSH e abilita servizi
+RUN mkdir -p /var/run/sshd /root/.ssh && \
+    sed -i 's/^#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config && \
+    sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/^#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config && \
+    systemctl enable sshd && \
+    systemctl enable cockpit.socket && \
+    systemctl enable crond
 
-# Enable Cockpit service
-RUN systemctl enable cockpit.socket
-
-# ==========================================
 # Crea utente student (wheel group = sudo in RHEL) SENZA password
 # La password sarà impostata dinamicamente all'avvio del container
 # tramite la variabile d'ambiente STUDENT_PASSWORD
-# ==========================================
 RUN useradd -m -u 1001 -G wheel student && \
     mkdir -p /home/student/.ssh && \
     chown -R student:student /home/student && \
     chmod 700 /home/student/.ssh
-# NOTA: La riga "echo student:student123 | chpasswd" è stata RIMOSSA
-# ==========================================
 
 # Configura sudo per wheel group
-RUN sed -i 's/^# %wheel ALL=(ALL) NOPASSWD: ALL/%wheel ALL=(ALL) NOPASSWD: \/usr\/bin\/systemctl, \/usr\/bin\/dnf, \/usr\/bin\/journalctl/' /etc/sudoers
-RUN echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
+RUN sed -i 's/^# %wheel ALL=(ALL) NOPASSWD: ALL/%wheel ALL=(ALL) NOPASSWD: \/usr\/bin\/systemctl, \/usr\/bin\/dnf, \/usr\/bin\/journalctl/' /etc/sudoers && \
+    echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
 
 # Disabilita root login
 RUN passwd -l root
@@ -94,9 +96,6 @@ RUN passwd -l root
 # SELinux in permissive (per container)
 RUN mkdir -p /etc/selinux && \
     echo "SELINUX=permissive" > /etc/selinux/config
-
-# Abilita cron
-RUN systemctl enable crond
 
 # Copia script
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
@@ -106,9 +105,9 @@ RUN chmod +x /usr/local/bin/*.sh
 
 # Banner Rocky Linux
 RUN cat > /etc/motd << 'EOF'
-╔═════════════════════════════════════════╗
+╔═══════════════════════════════════════╗
 ║    LINUX TRAINING LAB - ROCKY LINUX 10   ║
-╚═════════════════════════════════════════╝
+╚═══════════════════════════════════════╝
 
 Welcome to your RHEL-compatible training environment!
 Type 'cat ~/README.txt' for instructions.
@@ -117,9 +116,9 @@ EOF
 
 # README per studente
 RUN cat > /home/student/README.txt << 'EOF'
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 LABORATORIO LINUX - ROCKY LINUX 10
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 INFORMAZIONI SISTEMA:
 - Distribuzione: Rocky Linux 10 (RHEL-compatible)
@@ -161,17 +160,14 @@ SUPPORTO:
 Per problemi tecnici contatta il docente.
 
 Buon lavoro! 🚀
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EOF
 
-RUN chown student:student /home/student/README.txt
-
-# Crea directory esercitazioni
-RUN mkdir -p /home/student/exercises && \
-    chown -R student:student /home/student/exercises
-
-# Log directory
-RUN mkdir -p /var/log/sudo && \
+# Crea struttura home student e log directory
+RUN chown student:student /home/student/README.txt && \
+    mkdir -p /home/student/exercises && \
+    chown -R student:student /home/student/exercises && \
+    mkdir -p /var/log/sudo && \
     touch /var/log/sudo.log && \
     chmod 600 /var/log/sudo.log
 

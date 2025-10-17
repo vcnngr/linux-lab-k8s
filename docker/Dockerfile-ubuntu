@@ -3,14 +3,21 @@ FROM ubuntu:24.04
 # Metadata
 LABEL maintainer="lab@example.com"
 LABEL description="Ubuntu 24.04 container for Linux training lab"
-LABEL version="1.1"
+LABEL version="1.2"
 
 # Evita prompt interattivi durante installazione
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Europe/Rome
 
-# Installa systemd e strumenti base
-RUN apt-get update && apt-get install -y \
+# Ottimizzazione: disabilita installazione documentazione
+RUN echo 'path-exclude /usr/share/doc/*' > /etc/dpkg/dpkg.cfg.d/01_nodoc && \
+    echo 'path-exclude /usr/share/man/*' >> /etc/dpkg/dpkg.cfg.d/01_nodoc && \
+    echo 'path-exclude /usr/share/groff/*' >> /etc/dpkg/dpkg.cfg.d/01_nodoc && \
+    echo 'path-exclude /usr/share/info/*' >> /etc/dpkg/dpkg.cfg.d/01_nodoc && \
+    echo 'path-include /usr/share/man/man[1-9]/*' >> /etc/dpkg/dpkg.cfg.d/01_nodoc
+
+# Installa systemd e strumenti base in un unico layer ottimizzato
+RUN apt-get update && apt-get install -y --no-install-recommends \
     systemd \
     systemd-sysv \
     openssh-server \
@@ -46,7 +53,12 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     tzdata \
     locales \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /var/cache/apt/archives/* \
+    && rm -rf /tmp/* \
+    && rm -rf /var/tmp/* \
+    && find /var/log -type f -delete
 
 # Configura locale
 RUN locale-gen en_US.UTF-8
@@ -67,38 +79,30 @@ RUN systemctl mask \
     systemd-random-seed.service \
     systemd-machine-id-commit.service
 
-# Configura SSH
-RUN mkdir -p /var/run/sshd /root/.ssh
-RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
-RUN sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
-RUN sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-RUN systemctl enable ssh
+# Configura SSH e abilita servizi
+RUN mkdir -p /var/run/sshd /root/.ssh && \
+    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config && \
+    systemctl enable ssh && \
+    systemctl enable cockpit.socket && \
+    systemctl enable cron
 
-# Enable Cockpit service
-RUN systemctl enable cockpit.socket
-
-# ==========================================
 # Crea utente student SENZA password
 # La password sarà impostata dinamicamente all'avvio del container
 # tramite la variabile d'ambiente STUDENT_PASSWORD
-# ==========================================
 RUN useradd -m -s /bin/bash -u 1001 -G sudo student && \
     mkdir -p /home/student/.ssh && \
     chown -R student:student /home/student && \
     chmod 700 /home/student/.ssh
-# NOTA: La riga "echo student:student123 | chpasswd" è stata RIMOSSA
-# ==========================================
 
-# Configura sudo (sarà sovrascritto da script se necessario)
+# Configura sudo
 RUN echo "student ALL=(ALL) NOPASSWD: /usr/bin/systemctl, /usr/bin/apt, /usr/bin/journalctl" >> /etc/sudoers.d/student && \
     echo "student ALL=(ALL) ALL" >> /etc/sudoers.d/student && \
     chmod 440 /etc/sudoers.d/student
 
 # Disabilita root login
 RUN passwd -l root
-
-# Configura cron
-RUN systemctl enable cron
 
 # Copia script
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
@@ -108,9 +112,9 @@ RUN chmod +x /usr/local/bin/*.sh
 
 # Banner di benvenuto
 RUN cat > /etc/motd << 'EOF'
-╔═════════════════════════════════════════╗
+╔═══════════════════════════════════════╗
 ║     LINUX TRAINING LAB - UBUNTU 24.04     ║
-╚═════════════════════════════════════════╝
+╚═══════════════════════════════════════╝
 
 Welcome to your Linux training environment!
 Type 'cat ~/README.txt' for instructions.
@@ -119,9 +123,9 @@ EOF
 
 # README per studente
 RUN cat > /home/student/README.txt << 'EOF'
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 LABORATORIO LINUX - UBUNTU 24.04 LTS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 INFORMAZIONI SISTEMA:
 - Distribuzione: Ubuntu 24.04 LTS
@@ -152,17 +156,14 @@ SUPPORTO:
 Per problemi tecnici contatta il docente.
 
 Buon lavoro! 🚀
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EOF
 
-RUN chown student:student /home/student/README.txt
-
-# Crea directory esercitazioni
-RUN mkdir -p /home/student/exercises && \
-    chown -R student:student /home/student/exercises
-
-# Log directory
-RUN mkdir -p /var/log/sudo && \
+# Crea struttura home student e log directory
+RUN chown student:student /home/student/README.txt && \
+    mkdir -p /home/student/exercises && \
+    chown -R student:student /home/student/exercises && \
+    mkdir -p /var/log/sudo && \
     touch /var/log/sudo.log && \
     chmod 600 /var/log/sudo.log
 
