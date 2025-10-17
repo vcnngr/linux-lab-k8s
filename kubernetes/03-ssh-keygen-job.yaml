@@ -51,7 +51,7 @@ spec:
       serviceAccountName: ssh-key-generator
       restartPolicy: Never
       
-      containers:
+      initContainers:
       - name: keygen
         image: alpine:3.19
         command:
@@ -78,9 +78,6 @@ spec:
           
           echo "✓ SSH keys generated successfully"
           ls -la /keys/
-          
-          echo "Waiting for secret creation..."
-          sleep 5
         
         volumeMounts:
         - name: ssh-keys
@@ -94,7 +91,7 @@ spec:
             memory: "128Mi"
             cpu: "200m"
       
-      initContainers:
+      containers:
       - name: create-secret
         image: bitnami/kubectl:1.28
         command:
