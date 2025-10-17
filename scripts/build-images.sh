@@ -246,11 +246,6 @@ push_image() {
     local -a tags
     get_tags_for_distro "$distro" tags
     
-    # Aggiungi "latest" se non presente
-    if [[ ! " ${tags[@]} " =~ " latest " ]]; then
-        tags+=("latest")
-    fi
-    
     print_info "Pushing $distro image with ${#tags[@]} tags..."
     echo ""
     
@@ -262,17 +257,26 @@ push_image() {
         
         echo -n "  Pushing ${tag}... "
         
-        if docker push "$full_tag" 2>&1 | grep -q "denied\|unauthorized"; then
+        # Prova a fare il push
+        local push_output
+        local push_exit_code
+        
+        push_output=$(docker push "$full_tag" 2>&1)
+        push_exit_code=$?
+        
+        if echo "$push_output" | grep -q "denied\|unauthorized"; then
             echo -e "${RED}✗${NC} (authentication failed)"
             ((failed++))
             print_error "Push failed due to authentication. Please check credentials."
+            print_error "Error: $push_output"
             return 1
-        elif docker push "$full_tag" &> /dev/null; then
+        elif [ $push_exit_code -eq 0 ]; then
             echo -e "${GREEN}✓${NC}"
             ((success++))
         else
             echo -e "${RED}✗${NC}"
             ((failed++))
+            print_warning "Push error: $push_output"
         fi
     done
     
@@ -328,6 +332,7 @@ push_all() {
     
     local success=0
     local failed=0
+    local -a failed_distros
     
     for distro in ubuntu debian rocky; do
         echo -e "${CYAN}═══════════════════════════════${NC}"
@@ -337,14 +342,30 @@ push_all() {
         
         if push_image "$distro"; then
             ((success++))
+            print_step "${distro} push completed successfully"
         else
             ((failed++))
+            failed_distros+=("$distro")
+            print_error "${distro} push FAILED - continuing with next distro"
         fi
         echo ""
     done
     
     echo ""
-    print_info "Push summary: ${success} succeeded, ${failed} failed"
+    echo -e "${BLUE}=========================================="
+    echo -e "  PUSH SUMMARY"
+    echo -e "==========================================${NC}"
+    echo -e "Success: ${GREEN}${success}${NC}"
+    echo -e "Failed:  ${RED}${failed}${NC}"
+    
+    if [ ${#failed_distros[@]} -gt 0 ]; then
+        echo ""
+        print_error "Failed distributions:"
+        for distro in "${failed_distros[@]}"; do
+            echo "  • $distro"
+        done
+    fi
+    echo ""
     
     if [ $failed -gt 0 ]; then
         return 1
