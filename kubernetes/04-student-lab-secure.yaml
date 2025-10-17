@@ -5,6 +5,7 @@
 #   - Workspace usa PVC invece di emptyDir
 #   - Env var STUDENT_PASSWORD sarà aggiunta via patch dallo script
 #   - COCKPIT: Porta 9090 esposta per GUI amministrazione sistema
+#   - CAPABILITY: Set completo ottimizzato per systemd
 
 ---
 apiVersion: v1
@@ -155,16 +156,30 @@ spec:
             drop:
             - ALL
             add:
-            # Capabilities minime per systemd (NO SYS_ADMIN)
-            - CHOWN
-            - DAC_OVERRIDE
-            - FOWNER
-            - SETGID
-            - SETUID
-            - SYS_CHROOT
-            - AUDIT_WRITE
-            - SYS_NICE
-            - SYS_RESOURCE
+            # Core systemd
+            - SYS_ADMIN          # Cgroups, mount, namespaces
+            - SYS_RESOURCE       # Resource limits
+            # Networking
+            - NET_ADMIN          # Network configuration
+            - NET_BIND_SERVICE   # Bind privileged ports
+            - NET_RAW            # Raw sockets (ping)
+            # File system
+            - CHOWN              # Change file ownership
+            - DAC_OVERRIDE       # Bypass file permissions
+            - FOWNER             # Bypass ownership checks
+            - FSETID             # Preserve setuid/setgid
+            # Process management
+            - KILL               # Send signals to processes
+            - SETGID             # Set GID
+            - SETUID             # Set UID
+            - SETPCAP            # Transfer capabilities
+            - SETFCAP            # Set file capabilities
+            - SYS_CHROOT         # Use chroot
+            - SYS_PTRACE         # Process debugging (educational)
+            - SYS_NICE           # Change process priority
+            # Audit & logging
+            - AUDIT_WRITE        # Write audit logs
+            - SYSLOG             # Syslog operations
           privileged: false
           runAsNonRoot: false
           readOnlyRootFilesystem: false
@@ -322,14 +337,24 @@ spec:
             drop:
             - ALL
             add:
-            - CHOWN
-            - DAC_OVERRIDE
-            - SETGID
-            - SETUID
-            - SYS_CHROOT
-            - AUDIT_WRITE
-            - SYS_NICE
-            - SYS_RESOURCE
+            # Core systemd
+            - SYS_ADMIN          # Cgroups, mount, namespaces
+            - SYS_RESOURCE       # Resource limits
+            # Networking (SSH server)
+            - NET_BIND_SERVICE   # Bind port 22
+            # File system
+            - CHOWN              # Change file ownership
+            - DAC_OVERRIDE       # Bypass file permissions
+            - FOWNER             # Bypass ownership checks
+            # Process management
+            - KILL               # Send signals to processes
+            - SETGID             # Set GID
+            - SETUID             # Set UID
+            - SETPCAP            # Transfer capabilities
+            - SYS_CHROOT         # Use chroot
+            - SYS_NICE           # Change process priority
+            # Audit & logging
+            - AUDIT_WRITE        # Write audit logs
           privileged: false
         
         resources:
@@ -458,14 +483,24 @@ spec:
             drop:
             - ALL
             add:
-            - CHOWN
-            - DAC_OVERRIDE
-            - SETGID
-            - SETUID
-            - SYS_CHROOT
-            - AUDIT_WRITE
-            - SYS_NICE
-            - SYS_RESOURCE
+            # Core systemd
+            - SYS_ADMIN          # Cgroups, mount, namespaces
+            - SYS_RESOURCE       # Resource limits
+            # Networking (SSH server)
+            - NET_BIND_SERVICE   # Bind port 22
+            # File system
+            - CHOWN              # Change file ownership
+            - DAC_OVERRIDE       # Bypass file permissions
+            - FOWNER             # Bypass ownership checks
+            # Process management
+            - KILL               # Send signals to processes
+            - SETGID             # Set GID
+            - SETUID             # Set UID
+            - SETPCAP            # Transfer capabilities
+            - SYS_CHROOT         # Use chroot
+            - SYS_NICE           # Change process priority
+            # Audit & logging
+            - AUDIT_WRITE        # Write audit logs
           privileged: false
         
         resources:

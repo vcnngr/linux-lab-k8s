@@ -49,10 +49,10 @@ if [ -d "/tmp/ssh-keys" ]; then
     fi
     
     # Configura SSH config per client
+    # SSH config è montato dal ConfigMap (read-only)
+    # Non serve fare nulla, è già configurato correttamente
     if [ "$CONTAINER_ROLE" = "client" ] && [ -f "/home/student/.ssh/config" ]; then
-        chmod 600 ${SSH_DIR}/config
-        chown student:student ${SSH_DIR}/config
-        echo "✓ SSH config configured"
+        echo "✓ SSH config mounted from ConfigMap"
     fi
     
     # Assicurati ownership corretto
