@@ -1,0 +1,9 @@
+# kubernetes/01-namespaces-template.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: student__STUDENT_ID__
+  labels:
+    app: linux-lab
+    student-id: "__STUDENT_ID__"
+    lab-type: student-env
