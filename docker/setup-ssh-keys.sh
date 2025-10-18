@@ -23,6 +23,13 @@ if [ -d "/tmp/ssh-keys" ]; then
             chown student:student ${SSH_DIR}/id_rsa
             echo "✓ Private key configured (client)"
         fi
+        
+        if [ -f "/tmp/ssh-keys/id_rsa.pub" ]; then
+            cp /tmp/ssh-keys/id_rsa.pub ${SSH_DIR}/id_rsa.pub
+            chmod 644 ${SSH_DIR}/id_rsa.pub
+            chown student:student ${SSH_DIR}/id_rsa.pub
+            echo "✓ Public key configured (client)"
+        fi
     fi
     
     # ==========================================
@@ -39,7 +46,7 @@ if [ -d "/tmp/ssh-keys" ]; then
     fi
     
     # ==========================================
-    # TUTTI: Copia known_hosts e config
+    # TUTTI: Copia known_hosts (se presente)
     # ==========================================
     if [ -f "/tmp/ssh-keys/known_hosts" ]; then
         cp /tmp/ssh-keys/known_hosts ${SSH_DIR}/known_hosts
@@ -47,18 +54,37 @@ if [ -d "/tmp/ssh-keys" ]; then
         chown student:student ${SSH_DIR}/known_hosts
         echo "✓ known_hosts configured"
     fi
-    
-    # Configura SSH config per client
-    # SSH config è montato dal ConfigMap (read-only)
-    # Non serve fare nulla, è già configurato correttamente
-    if [ "$CONTAINER_ROLE" = "client" ] && [ -f "/home/student/.ssh/config" ]; then
-        echo "✓ SSH config mounted from ConfigMap"
-    fi
-    
-    # Assicurati ownership corretto
-    chown -R student:student ${SSH_DIR}
 else
     echo "No SSH keys directory found at /tmp/ssh-keys"
 fi
+
+# ==========================================
+# OWNERSHIP: Solo su file che abbiamo creato
+# ==========================================
+# NON fare chown -R perché il file 'config' è montato da ConfigMap (read-only)
+# Cambia ownership solo dei file specifici che abbiamo copiato
+
+# Assicura che la directory .ssh appartenga a student
+chown student:student ${SSH_DIR}
+
+# Cambia ownership solo dei file che esistono E che NON sono mount
+if [ -f "${SSH_DIR}/id_rsa" ]; then
+    chown student:student ${SSH_DIR}/id_rsa
+fi
+
+if [ -f "${SSH_DIR}/id_rsa.pub" ]; then
+    chown student:student ${SSH_DIR}/id_rsa.pub
+fi
+
+if [ -f "${SSH_DIR}/authorized_keys" ]; then
+    chown student:student ${SSH_DIR}/authorized_keys
+fi
+
+if [ -f "${SSH_DIR}/known_hosts" ]; then
+    chown student:student ${SSH_DIR}/known_hosts
+fi
+
+# Il file 'config' è montato da ConfigMap, non toccare!
+# Kubernetes gestisce automaticamente i permessi dei ConfigMap mount
 
 echo "SSH keys setup completed"

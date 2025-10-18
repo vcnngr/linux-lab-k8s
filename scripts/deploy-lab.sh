@@ -301,14 +301,15 @@ pull_image() {
 create_namespaces() {
     print_header "CREATING NAMESPACES"
     
-    if kubectl apply -f kubernetes/01-namespaces.yaml; then
-        print_step "Namespaces created"
-    else
-        print_error "Failed to create namespaces"
-        exit 1
-    fi
+    for i in $(seq 1 $NUM_STUDENTS); do
+        echo -e "${BLUE}[${i}/${NUM_STUDENTS}]${NC} Creating namespace student${i}..."
+        
+        cat kubernetes/01-namespaces-template.yaml | \
+            sed "s/__STUDENT_ID__/${i}/g" | \
+            kubectl apply -f - > /dev/null
+    done
     
-    # Wait for namespaces to be ready
+    print_step "Namespaces created"
     sleep 2
 }
 
