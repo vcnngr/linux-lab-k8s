@@ -1,6 +1,5 @@
-# Job per generare chiavi SSH e salvarle in Secret
-# Eseguire una volta per ogni namespace student*
-# Lo script deploy-lab.sh lo applica automaticamente
+# Job per generare chiavi SSH e creare Secret
+# FIX: Aumentata memoria per container create-secret (evita OOMKilled)
 
 ---
 apiVersion: v1
@@ -13,27 +12,27 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: secret-manager
+  name: ssh-key-generator
   namespace: student1
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
-  verbs: ["create", "update", "patch", "get", "list"]
+  verbs: ["create", "get", "update", "patch"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: ssh-key-generator-binding
+  name: ssh-key-generator
   namespace: student1
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ssh-key-generator
 subjects:
 - kind: ServiceAccount
   name: ssh-key-generator
   namespace: student1
-roleRef:
-  kind: Role
-  name: secret-manager
-  apiGroup: rbac.authorization.k8s.io
 
 ---
 apiVersion: batch/v1
@@ -42,16 +41,23 @@ metadata:
   name: generate-ssh-keys
   namespace: student1
   labels:
-    app: ssh-keygen
+    app: ssh-key-generator
+    component: keygen
 spec:
-  ttlSecondsAfterFinished: 60
+  ttlSecondsAfterFinished: 120
   backoffLimit: 3
   template:
+    metadata:
+      labels:
+        app: ssh-key-generator
     spec:
       serviceAccountName: ssh-key-generator
       restartPolicy: Never
       
       initContainers:
+      # ============================================
+      # STEP 1: Genera chiavi SSH
+      # ============================================
       - name: keygen
         image: alpine:3.19
         command:
@@ -60,28 +66,44 @@ spec:
         - |
           set -e
           
-          echo "Installing openssh..."
+          echo "================================================"
+          echo "  SSH KEY GENERATION - STEP 1"
+          echo "================================================"
+          
+          echo "[1/6] Installing openssh..."
           apk add --no-cache openssh-client openssh-keygen
           
-          echo "Generating SSH key pair..."
+          echo "[2/6] Generating SSH key pair (RSA 4096)..."
           ssh-keygen -t rsa -b 4096 -f /keys/id_rsa -N "" -C "student1@lab"
           
-          echo "Creating known_hosts file..."
+          echo "[3/6] Creating known_hosts file..."
           touch /keys/known_hosts
           
-          echo "Setting permissions..."
+          # Pre-populate known_hosts con server1 e server2
+          echo "[4/6] Pre-populating known_hosts..."
+          cat > /keys/known_hosts << 'EOF'
+          server1 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC...
+          server2 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC...
+          EOF
+          
+          echo "[5/6] Setting permissions..."
           chmod 644 /keys/id_rsa /keys/id_rsa.pub /keys/known_hosts
           
-          echo "Creating completion marker..."
+          echo "[6/6] Creating completion marker..."
           date > /keys/.generated
           
-          echo "✓ SSH keys generated successfully"
-          ls -la /keys/
-        
+          echo ""
+          echo "✓ SSH keys generated successfully!"
+          echo ""
+          echo "Generated files:"
+          ls -lh /keys/
+          echo ""
+          echo "Key fingerprint:"
+          ssh-keygen -lf /keys/id_rsa.pub
+          
         volumeMounts:
         - name: ssh-keys
           mountPath: /keys
-        
         resources:
           requests:
             memory: "64Mi"
@@ -91,23 +113,39 @@ spec:
             cpu: "200m"
       
       containers:
+      # ============================================
+      # STEP 2: Crea Kubernetes Secret
+      # ============================================
       - name: create-secret
-        image: bitnamilegacy/kubectl:1.28
+        image: bitnamilegacy/kubectl:1.31
         command:
         - /bin/bash
         - -c
         - |
           set -e
           
-          echo "Waiting for keys to be generated..."
+          echo "================================================"
+          echo "  KUBERNETES SECRET CREATION - STEP 2"
+          echo "================================================"
+          
+          echo "[1/4] Waiting for keys to be generated..."
+          timeout=60
+          elapsed=0
           while [ ! -f /keys/.generated ]; do
+            if [ $elapsed -ge $timeout ]; then
+              echo "ERROR: Timeout waiting for key generation"
+              exit 1
+            fi
             sleep 1
+            elapsed=$((elapsed + 1))
           done
+          echo "✓ Keys found!"
           
-          echo "Keys found! Creating Kubernetes secret..."
-          
+          echo "[2/4] Reading namespace..."
           NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
+          echo "✓ Namespace: ${NAMESPACE}"
           
+          echo "[3/4] Creating Kubernetes secret 'ssh-keys'..."
           kubectl create secret generic ssh-keys \
             --from-file=id_rsa=/keys/id_rsa \
             --from-file=id_rsa.pub=/keys/id_rsa.pub \
@@ -115,21 +153,25 @@ spec:
             --namespace=${NAMESPACE} \
             --dry-run=client -o yaml | kubectl apply -f -
           
-          echo "✓ Secret 'ssh-keys' created successfully"
+          echo "[4/4] Verifying secret..."
+          kubectl get secret ssh-keys -n ${NAMESPACE} -o jsonpath='{.metadata.name}: {.data}' | head -c 200
+          echo "..."
           
-          kubectl get secret ssh-keys -n ${NAMESPACE}
-        
+          echo ""
+          echo "✓ Secret 'ssh-keys' created successfully!"
+          echo ""
+          kubectl describe secret ssh-keys -n ${NAMESPACE}
+          
         volumeMounts:
         - name: ssh-keys
           mountPath: /keys
-        
         resources:
           requests:
-            memory: "64Mi"
-            cpu: "50m"
-          limits:
             memory: "128Mi"
             cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
       
       volumes:
       - name: ssh-keys
